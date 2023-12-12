@@ -59,7 +59,7 @@ where
         }
     }
 
-    pub fn what_is_scope_listening(&self, scope_id: ScopeId) -> Channel {
+    pub fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
         let listeners = self.listeners.borrow();
         listeners.get(&scope_id).unwrap().clone()
     }
@@ -147,21 +147,40 @@ where
         Radio { antenna }
     }
 
+    /// Read the current state value.
+    //// Example:
+    ///
+    /// ```rs
+    /// let value = radio.read();
+    /// ```
     pub fn read(&self) -> Ref<Sound> {
         self.antenna.station.sound.borrow()
     }
 
+    /// Modify the state using the channel this radio was created with.
+    ///
+    /// Example:
+    ///
+    /// ```rs
+    /// radio.write().value = 1;
+    /// ```
     pub fn write(&self) -> RadioGuard<Sound, Channel> {
         RadioGuard {
             channel: self
                 .antenna
                 .station
-                .what_is_scope_listening(self.antenna.scope_id),
+                .get_scope_channel(self.antenna.scope_id),
             antenna: &self.antenna,
             value: self.antenna.station.sound.borrow_mut(),
         }
     }
 
+    /// Modify the state using a custom Channel.
+    ///
+    /// ## Example:
+    /// ```rs, no_run
+    /// radio.write(Channel::Whatever).value = 1;
+    /// ```
     pub fn write_with(&self, channel: Channel) -> RadioGuard<Sound, Channel> {
         RadioGuard {
             channel,
