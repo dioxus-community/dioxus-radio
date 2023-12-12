@@ -682,7 +682,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9a3115cf9f550a9af88de615c21a15a72dee44230602087dd7b0c5d01f46c37"
 
 [[package]]
-name = "dioxus-library-template"
+name = "dioxus-radio"
 version = "0.1.0"
 dependencies = [
  "dioxus",

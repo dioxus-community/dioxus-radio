@@ -1,10 +1,10 @@
 [package]
-name = "dioxus-library-template"
+name = "dioxus-radio"
 version = "0.1.0"
 edition = "2021"
 readme = "./README.md"
-homepage = "https://github.com/dioxus-community/dioxus-library-template"
-repository = "https://github.com/dioxus-community/dioxus-library-template"
+homepage = "https://github.com/dioxus-community/dioxus-radio"
+repository = "https://github.com/dioxus-community/dioxus-radio"
 keywords = ["dioxus"]
 categories = ["gui"]
 

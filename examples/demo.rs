@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use dioxus_library_template::prelude::*;
+use dioxus_radio::prelude::*;
 
 #[derive(Default)]
 struct Data {
