@@ -161,6 +161,14 @@ where
             value: self.antenna.station.sound.borrow_mut(),
         }
     }
+
+    pub fn write_with(&self, channel: Channel) -> RadioGuard<Sound, Channel> {
+        RadioGuard {
+            channel,
+            antenna: &self.antenna,
+            value: self.antenna.station.sound.borrow_mut(),
+        }
+    }
 }
 
 pub fn use_radio<Sound: 'static, Channel: 'static>(
