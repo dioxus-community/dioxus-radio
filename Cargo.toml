@@ -1,0 +1,16 @@
+[package]
+name = "dioxus-library-template"
+version = "0.1.0"
+edition = "2021"
+readme = "./README.md"
+homepage = "https://github.com/dioxus-community/dioxus-library-template"
+repository = "https://github.com/dioxus-community/dioxus-library-template"
+keywords = ["dioxus"]
+categories = ["gui"]
+
+[dependencies]
+dioxus = { version = "0.4", default-features = false, features = ["macro", "hooks"] }
+
+[dev-dependencies]
+dioxus-desktop = "0.4.3"
+dioxus = { version = "0.4", default-features = true }
