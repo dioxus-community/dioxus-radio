@@ -18,6 +18,12 @@
 - All renderers ([web](https://dioxuslabs.com/learn/0.4/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.4/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
 - Both WASM and native targets
 
+## Installation
+Install the latest release:
+```sh
+cargo add dioxus-radio
+```
+
 ## Example
 
 ```bash	
