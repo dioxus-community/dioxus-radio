@@ -7,6 +7,7 @@ homepage = "https://github.com/dioxus-community/dioxus-radio"
 repository = "https://github.com/dioxus-community/dioxus-radio"
 keywords = ["dioxus"]
 categories = ["gui"]
+license = "./LICENSE.md"
 
 [dependencies]
 dioxus = { version = "0.4", default-features = false, features = ["macro", "hooks"] }
