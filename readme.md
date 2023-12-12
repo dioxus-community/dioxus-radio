@@ -6,7 +6,7 @@
 
 **Fully-typed global state management with a topics subscription system** for [Dioxus 🧬](https://dioxuslabs.com/).
 
-## What is this for
+## Who is this for
 - You want a global state
 - You really don't want unnecessary re-runs
 - You want a precise state subscription system
