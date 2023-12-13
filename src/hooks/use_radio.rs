@@ -77,7 +77,7 @@ impl<Value, Channel> RadioAntenna<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    pub fn new(
+    pub(crate) fn new(
         station: RadioStation<Value, Channel>,
         scope_id: ScopeId,
     ) -> RadioAntenna<Value, Channel> {
@@ -143,7 +143,7 @@ impl<Value, Channel> Radio<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    pub fn new(antenna: Rc<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
+    pub(crate) fn new(antenna: Rc<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
         Radio { antenna }
     }
 
