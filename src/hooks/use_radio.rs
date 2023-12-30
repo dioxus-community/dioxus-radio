@@ -157,6 +157,19 @@ where
         self.antenna.station.value.borrow()
     }
 
+    /// Read the current state value inside a callback.
+    //// Example:
+    ///
+    /// ```rs
+    /// radio.with(|value| {
+    ///     // Do something with `value`
+    /// });
+    /// ```
+    pub fn with(&self, cb: impl FnOnce(Ref<Value>)) {
+        let borrow = self.antenna.station.value.borrow();
+        cb(borrow);
+    }
+
     /// Modify the state using the channel this radio was created with.
     ///
     /// Example:
@@ -175,18 +188,50 @@ where
         }
     }
 
+    /// Get a mutable reference to the current state value, inside a callback.
+    ///
+    /// Example:
+    ///
+    /// ```rs
+    /// radio.write_with(|value| {
+    ///     // Modify `value`
+    /// });
+    /// ```
+    pub fn write_with(&self, cb: impl FnOnce(RadioGuard<Value, Channel>)) {
+        let guard = self.write();
+        cb(guard);
+    }
+
     /// Modify the state using a custom Channel.
     ///
     /// ## Example:
     /// ```rs, no_run
     /// radio.write(Channel::Whatever).value = 1;
     /// ```
-    pub fn write_with(&self, channel: Channel) -> RadioGuard<Value, Channel> {
+    pub fn write_channel(&self, channel: Channel) -> RadioGuard<Value, Channel> {
         RadioGuard {
             channel,
             antenna: &self.antenna,
             value: self.antenna.station.value.borrow_mut(),
         }
+    }
+
+    /// Get a mutable reference to the current state value, inside a callback.
+    ///
+    /// Example:
+    ///
+    /// ```rs
+    /// radio.write_channel_with(Channel::Whatever, |value| {
+    ///     // Modify `value`
+    /// });
+    /// ```
+    pub fn write_channel_with(
+        &self,
+        channel: Channel,
+        cb: impl FnOnce(RadioGuard<Value, Channel>),
+    ) {
+        let guard = self.write_channel(channel);
+        cb(guard);
     }
 }
 
