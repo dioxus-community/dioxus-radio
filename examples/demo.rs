@@ -30,10 +30,10 @@ pub enum DataChannel {
 }
 
 fn main() {
-    dioxus_desktop::launch(|cx: Scope| {
-        use_init_radio_station::<Data, DataChannel>(cx, Data::default);
+    dioxus::launch(|| {
+        use_init_radio_station::<Data, DataChannel>(Data::default);
 
-        render!(
+        rsx!(
             ListComp {
                 channel: DataChannel::ListA
             }
@@ -46,17 +46,17 @@ fn main() {
 
 #[allow(non_snake_case)]
 #[component]
-fn ListComp(cx: Scope, channel: DataChannel) -> Element {
-    let radio = use_radio::<Data, DataChannel>(cx, channel.clone());
+fn ListComp(channel: DataChannel) -> Element {
+    let radio = use_radio::<Data, DataChannel>(channel.clone());
 
     println!("Rerunning with channel {channel:?}");
 
-    render!(
+    rsx!(
         button {
-            onclick: |_| radio.write().push_to_list(channel, "Hello World".to_string()),
+            onclick: move |_| radio.write().push_to_list(&channel, "Hello World".to_string()),
             "New Item"
         },
-        for (i, item) in radio.read().get_list(channel).iter().enumerate() {
+        for (i, item) in radio.read().get_list(&channel).iter().enumerate() {
             ul {
                 key: "{i}",
                 "{item}"

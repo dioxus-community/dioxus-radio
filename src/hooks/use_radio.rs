@@ -1,13 +1,10 @@
-use dioxus::{
-    core::{ScopeId, ScopeState},
-    hooks::{use_context, use_context_provider, Ref, RefCell, RefMut},
-};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
-    rc::Rc,
     sync::Arc,
 };
+
+use dioxus_lib::prelude::*;
 
 pub trait RadioChannel: PartialEq + Eq + Clone {}
 
@@ -15,11 +12,12 @@ impl<T> RadioChannel for T where T: PartialEq + Eq + Clone {}
 
 pub struct RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: 'static + RadioChannel,
+    Value: 'static,
 {
-    value: Rc<RefCell<Value>>,
-    listeners: Rc<RefCell<HashMap<ScopeId, Channel>>>,
-    schedule_update_any: Arc<dyn Fn(ScopeId) + Send + Sync>,
+    value: Signal<Value>,
+    listeners: Signal<HashMap<ScopeId, Channel>>,
+    schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
 }
 
 impl<Value, Channel> Clone for RadioStation<Value, Channel>
@@ -35,42 +33,57 @@ where
     }
 }
 
+impl<Value, Channel> Copy for RadioStation<Value, Channel> where Channel: RadioChannel {}
+
 impl<Value, Channel> RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
 {
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
-        let mut listeners = self.listeners.borrow_mut();
+        let mut listeners = self.listeners.write_unchecked();
         listeners.insert(scope_id, channel);
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
-        let mut listeners = self.listeners.borrow_mut();
+        let mut listeners = self.listeners.write_unchecked();
         listeners.remove(&scope_id);
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.borrow();
+        let listeners = self.listeners.write_unchecked();
 
         for (scope_id, listener_channel) in listeners.iter() {
             if listener_channel == channel {
-                (self.schedule_update_any)(*scope_id)
+                (self.schedule_update_any.peek())(*scope_id)
             }
         }
     }
 
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
-        let listeners = self.listeners.borrow();
+        let listeners = self.listeners.peek();
         listeners.get(&scope_id).unwrap().clone()
     }
 }
 
 pub struct RadioAntenna<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: 'static + RadioChannel,
+    Value: 'static,
 {
     station: RadioStation<Value, Channel>,
     scope_id: ScopeId,
+}
+
+impl<Value, Channel> Clone for RadioAntenna<Value, Channel>
+where
+    Channel: RadioChannel,
+{
+    fn clone(&self) -> Self {
+        Self {
+            station: self.station.clone(),
+            scope_id: self.scope_id,
+        }
+    }
 }
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
@@ -94,56 +107,70 @@ where
     }
 }
 
-pub struct RadioGuard<'a, Value, Channel>
+pub struct RadioGuard<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: 'static + RadioChannel,
+    Value: 'static,
 {
-    antenna: &'a Rc<RadioAntenna<Value, Channel>>,
+    antenna: Signal<RadioAntenna<Value, Channel>>,
     channel: Channel,
-    value: RefMut<'a, Value>,
+    value: WritableRef<'static, Signal<Value>>,
 }
 
-impl<'a, Value, Channel> Drop for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> Drop for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
     fn drop(&mut self) {
-        self.antenna.station.notify_listeners(&self.channel)
+        self.antenna.peek().station.notify_listeners(&self.channel)
     }
 }
 
-impl<'a, Value, Channel> Deref for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> Deref for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    type Target = RefMut<'a, Value>;
+    type Target = WritableRef<'static, Signal<Value>>;
 
-    fn deref(&self) -> &RefMut<'a, Value> {
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl<'a, Value, Channel> DerefMut for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> DerefMut for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    fn deref_mut(&mut self) -> &mut RefMut<'a, Value> {
+    fn deref_mut(&mut self) -> &mut WritableRef<'static, Signal<Value>> {
         &mut self.value
     }
 }
 
 pub struct Radio<Value, Channel>
 where
+    Channel: 'static + RadioChannel,
+    Value: 'static,
+{
+    antenna: Signal<RadioAntenna<Value, Channel>>,
+}
+
+impl<Value, Channel> Clone for Radio<Value, Channel>
+where
     Channel: RadioChannel,
 {
-    antenna: Rc<RadioAntenna<Value, Channel>>,
+    fn clone(&self) -> Self {
+        Self {
+            antenna: self.antenna.clone(),
+        }
+    }
 }
+impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel {}
 
 impl<Value, Channel> Radio<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    pub(crate) fn new(antenna: Rc<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
+    pub(crate) fn new(antenna: Signal<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
         Radio { antenna }
     }
 
@@ -153,8 +180,8 @@ where
     /// ```rs
     /// let value = radio.read();
     /// ```
-    pub fn read(&self) -> Ref<Value> {
-        self.antenna.station.value.borrow()
+    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.antenna.peek().station.value.read_unchecked()
     }
 
     /// Read the current state value inside a callback.
@@ -165,8 +192,9 @@ where
     ///     // Do something with `value`
     /// });
     /// ```
-    pub fn with(&self, cb: impl FnOnce(Ref<Value>)) {
-        let borrow = self.antenna.station.value.borrow();
+    pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
+        let value = self.antenna.peek().station.value;
+        let borrow = value.read();
         cb(borrow);
     }
 
@@ -181,10 +209,11 @@ where
         RadioGuard {
             channel: self
                 .antenna
+                .peek()
                 .station
-                .get_scope_channel(self.antenna.scope_id),
-            antenna: &self.antenna,
-            value: self.antenna.station.value.borrow_mut(),
+                .get_scope_channel(self.antenna.peek().scope_id),
+            antenna: self.antenna,
+            value: self.antenna.peek().station.value.write_unchecked(),
         }
     }
 
@@ -211,8 +240,8 @@ where
     pub fn write_channel(&self, channel: Channel) -> RadioGuard<Value, Channel> {
         RadioGuard {
             channel,
-            antenna: &self.antenna,
-            value: self.antenna.station.value.borrow_mut(),
+            antenna: self.antenna,
+            value: self.antenna.peek().station.value.write_unchecked(),
         }
     }
 
@@ -235,35 +264,31 @@ where
     }
 }
 
-pub fn use_radio<Value: 'static, Channel: 'static>(
-    cx: &ScopeState,
-    channel: Channel,
-) -> &Radio<Value, Channel>
+pub fn use_radio<Value: 'static, Channel: 'static>(channel: Channel) -> Radio<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    let station = use_context::<RadioStation<Value, Channel>>(cx).unwrap();
+    let station = use_context::<RadioStation<Value, Channel>>();
 
-    let radio = cx.use_hook(|| {
-        let antenna = RadioAntenna::new(station.clone(), cx.scope_id());
-        Radio::new(Rc::new(antenna))
+    let radio = use_hook(|| {
+        let antenna = RadioAntenna::new(station.clone(), current_scope_id().unwrap());
+        Radio::new(Signal::new(antenna))
     });
 
-    station.listen(channel, cx.scope_id());
+    station.listen(channel, current_scope_id().unwrap());
 
     radio
 }
 
 pub fn use_init_radio_station<Value: 'static, Channel: 'static>(
-    cx: &ScopeState,
     init_value: impl FnOnce() -> Value,
-) -> &RadioStation<Value, Channel>
+) -> RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    use_context_provider(cx, || RadioStation {
-        value: Rc::new(RefCell::new(init_value())),
-        schedule_update_any: cx.schedule_update_any(),
-        listeners: Rc::default(),
+    use_context_provider(|| RadioStation {
+        value: Signal::new(init_value()),
+        schedule_update_any: Signal::new(schedule_update_any()),
+        listeners: Signal::default(),
     })
 }
