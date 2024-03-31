@@ -167,7 +167,7 @@ where
     /// let value = radio.read();
     /// ```
     pub fn read(&self) -> ReadableRef<Signal<Value>> {
-        self.antenna.peek().station.value.read_unchecked()
+        self.antenna.peek().station.value.peek_unchecked()
     }
 
     /// Read the current state value inside a callback.
