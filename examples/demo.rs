@@ -3,42 +3,33 @@ use dioxus_radio::prelude::*;
 
 #[derive(Default)]
 struct Data {
-    list_a: Vec<String>,
-    list_b: Vec<String>,
-}
-
-impl Data {
-    pub fn get_list(&self, channel: &DataChannel) -> &[String] {
-        match channel {
-            DataChannel::ListA => &self.list_a,
-            DataChannel::ListB => &self.list_b,
-        }
-    }
-
-    pub fn push_to_list(&mut self, channel: &DataChannel, item: String) {
-        match channel {
-            DataChannel::ListA => self.list_a.push(item),
-            DataChannel::ListB => self.list_b.push(item),
-        }
-    }
+    pub lists: Vec<Vec<String>>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum DataChannel {
-    ListA,
-    ListB,
+    ListCreated,
+    ListN(usize),
 }
 
 fn main() {
     dioxus::launch(|| {
         use_init_radio_station::<Data, DataChannel>(Data::default);
+        let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreated);
+
+        let onclick = move |_| {
+            radio.write().lists.push(Vec::default());
+        };
 
         rsx!(
-            ListComp {
-                channel: DataChannel::ListA
+            button {
+                onclick,
+                "Add new list",
             }
-            ListComp {
-                channel: DataChannel::ListB
+            for (list_n, _) in radio.read().lists.iter().enumerate() {
+                ListComp {
+                    list_n
+                }
             }
         )
     });
@@ -46,20 +37,22 @@ fn main() {
 
 #[allow(non_snake_case)]
 #[component]
-fn ListComp(channel: DataChannel) -> Element {
-    let radio = use_radio::<Data, DataChannel>(channel.clone());
+fn ListComp(list_n: usize) -> Element {
+    let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListN(list_n));
 
-    println!("Rerunning with channel {channel:?}");
+    println!("Rerunning list {list_n:?}.");
 
     rsx!(
-        button {
-            onclick: move |_| radio.write().push_to_list(&channel, "Hello World".to_string()),
-            "New Item"
-        },
-        for (i, item) in radio.read().get_list(&channel).iter().enumerate() {
-            ul {
-                key: "{i}",
-                "{item}"
+        div {
+            button {
+                onclick: move |_| radio.write().lists[list_n].push("Hello World".to_string()),
+                "New Item"
+            },
+            for (i, item) in radio.read().lists[list_n].iter().enumerate() {
+                ul {
+                    key: "{i}",
+                    "{item}"
+                }
             }
         }
     )

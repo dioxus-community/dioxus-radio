@@ -41,7 +41,16 @@ where
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
-        let mut listeners = self.listeners.write_unchecked();
+        let mut listeners = match self.listeners.try_write_unchecked() {
+            Err(generational_box::BorrowMutError::Dropped(_)) => {
+                // It's safe to skip this error as the RadioStation's signals could have been dropped before the caller of this function.
+                // For instance: If you closed the app, the RadioStation would be dropped along all it's signals, causing the inner components
+                // to still have dropped signals and thus causing this error if they were to call the signals on a custom destructor.
+                return;
+            }
+            Err(e) => panic!("Unexpected error: {e}"),
+            Ok(v) => v,
+        };
         listeners.remove(&scope_id);
     }
 
@@ -58,6 +67,26 @@ where
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
         let listeners = self.listeners.peek();
         listeners.get(&scope_id).unwrap().clone()
+    }
+
+    /// Read the current state value.
+    //// Example:
+    ///
+    /// ```rs
+    /// let value = radio.read();
+    /// ```
+    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.value.read()
+    }
+
+    /// Read the current state value without subscribing.
+    //// Example:
+    ///
+    /// ```rs
+    /// let value = radio.peek();
+    /// ```
+    pub fn peek(&self) -> ReadableRef<Signal<Value>> {
+        self.value.peek()
     }
 }
 
@@ -191,7 +220,7 @@ where
     /// ```rs
     /// radio.write().value = 1;
     /// ```
-    pub fn write(&self) -> RadioGuard<Value, Channel> {
+    pub fn write(&mut self) -> RadioGuard<Value, Channel> {
         RadioGuard {
             channel: self.antenna.peek().get_channel(),
             antenna: self.antenna,
@@ -208,7 +237,7 @@ where
     ///     // Modify `value`
     /// });
     /// ```
-    pub fn write_with(&self, cb: impl FnOnce(RadioGuard<Value, Channel>)) {
+    pub fn write_with(&mut self, cb: impl FnOnce(RadioGuard<Value, Channel>)) {
         let guard = self.write();
         cb(guard);
     }
@@ -237,7 +266,7 @@ where
     /// });
     /// ```
     pub fn write_channel_with(
-        &self,
+        &mut self,
         channel: Channel,
         cb: impl FnOnce(RadioGuard<Value, Channel>),
     ) {
@@ -258,7 +287,11 @@ where
         Radio::new(Signal::new(antenna))
     });
 
-    station.listen(channel, current_scope_id().unwrap());
+    radio
+        .antenna
+        .peek()
+        .station
+        .listen(channel, current_scope_id().unwrap());
 
     radio
 }
