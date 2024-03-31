@@ -2,8 +2,6 @@
 
 # dioxus-radio 📡🦀
 
-⚠️ **Work in progress !!⚠️**.
-
 **Fully-typed global state management with a topics subscription system** for [Dioxus 🧬](https://dioxuslabs.com/).
 
 ## Who is this for
@@ -14,8 +12,8 @@
 
 ## Support
 
-- **Dioxus v0.4** 🧬
-- All renderers ([web](https://dioxuslabs.com/learn/0.4/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.4/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
+- **Dioxus v0.5** 🧬
+- All renderers ([web](https://dioxuslabs.com/learn/0.5/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.5/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
 - Both WASM and native targets
 
 ## Installation

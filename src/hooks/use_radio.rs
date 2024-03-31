@@ -1,25 +1,23 @@
-use dioxus::{
-    core::{ScopeId, ScopeState},
-    hooks::{use_context, use_context_provider, Ref, RefCell, RefMut},
-};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
-    rc::Rc,
     sync::Arc,
 };
 
-pub trait RadioChannel: PartialEq + Eq + Clone {}
+use dioxus_lib::prelude::*;
 
-impl<T> RadioChannel for T where T: PartialEq + Eq + Clone {}
+pub trait RadioChannel: 'static + PartialEq + Eq + Clone {}
+
+impl<T> RadioChannel for T where T: 'static + PartialEq + Eq + Clone {}
 
 pub struct RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
-    value: Rc<RefCell<Value>>,
-    listeners: Rc<RefCell<HashMap<ScopeId, Channel>>>,
-    schedule_update_any: Arc<dyn Fn(ScopeId) + Send + Sync>,
+    value: Signal<Value>,
+    listeners: Signal<HashMap<ScopeId, Channel>>,
+    schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
 }
 
 impl<Value, Channel> Clone for RadioStation<Value, Channel>
@@ -27,47 +25,75 @@ where
     Channel: RadioChannel,
 {
     fn clone(&self) -> Self {
-        Self {
-            value: self.value.clone(),
-            listeners: self.listeners.clone(),
-            schedule_update_any: self.schedule_update_any.clone(),
-        }
+        *self
     }
 }
+
+impl<Value, Channel> Copy for RadioStation<Value, Channel> where Channel: RadioChannel {}
 
 impl<Value, Channel> RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
 {
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
-        let mut listeners = self.listeners.borrow_mut();
+        let mut listeners = self.listeners.write_unchecked();
         listeners.insert(scope_id, channel);
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
-        let mut listeners = self.listeners.borrow_mut();
+        let mut listeners = match self.listeners.try_write_unchecked() {
+            Err(generational_box::BorrowMutError::Dropped(_)) => {
+                // It's safe to skip this error as the RadioStation's signals could have been dropped before the caller of this function.
+                // For instance: If you closed the app, the RadioStation would be dropped along all it's signals, causing the inner components
+                // to still have dropped signals and thus causing this error if they were to call the signals on a custom destructor.
+                return;
+            }
+            Err(e) => panic!("Unexpected error: {e}"),
+            Ok(v) => v,
+        };
         listeners.remove(&scope_id);
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.borrow();
+        let listeners = self.listeners.write_unchecked();
 
         for (scope_id, listener_channel) in listeners.iter() {
             if listener_channel == channel {
-                (self.schedule_update_any)(*scope_id)
+                (self.schedule_update_any.peek())(*scope_id)
             }
         }
     }
 
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
-        let listeners = self.listeners.borrow();
+        let listeners = self.listeners.peek();
         listeners.get(&scope_id).unwrap().clone()
+    }
+
+    /// Read the current state value.
+    //// Example:
+    ///
+    /// ```rs
+    /// let value = radio.read();
+    /// ```
+    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.value.read()
+    }
+
+    /// Read the current state value without subscribing.
+    //// Example:
+    ///
+    /// ```rs
+    /// let value = radio.peek();
+    /// ```
+    pub fn peek(&self) -> ReadableRef<Signal<Value>> {
+        self.value.peek()
     }
 }
 
 pub struct RadioAntenna<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
     station: RadioStation<Value, Channel>,
     scope_id: ScopeId,
@@ -83,6 +109,10 @@ where
     ) -> RadioAntenna<Value, Channel> {
         RadioAntenna { station, scope_id }
     }
+
+    pub fn get_channel(&self) -> Channel {
+        self.station.get_scope_channel(self.scope_id)
+    }
 }
 
 impl<Value, Channel> Drop for RadioAntenna<Value, Channel>
@@ -94,40 +124,41 @@ where
     }
 }
 
-pub struct RadioGuard<'a, Value, Channel>
+pub struct RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
-    antenna: &'a Rc<RadioAntenna<Value, Channel>>,
+    antenna: Signal<RadioAntenna<Value, Channel>>,
     channel: Channel,
-    value: RefMut<'a, Value>,
+    value: WritableRef<'static, Signal<Value>>,
 }
 
-impl<'a, Value, Channel> Drop for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> Drop for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
     fn drop(&mut self) {
-        self.antenna.station.notify_listeners(&self.channel)
+        self.antenna.peek().station.notify_listeners(&self.channel)
     }
 }
 
-impl<'a, Value, Channel> Deref for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> Deref for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    type Target = RefMut<'a, Value>;
+    type Target = WritableRef<'static, Signal<Value>>;
 
-    fn deref(&self) -> &RefMut<'a, Value> {
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl<'a, Value, Channel> DerefMut for RadioGuard<'a, Value, Channel>
+impl<Value, Channel> DerefMut for RadioGuard<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    fn deref_mut(&mut self) -> &mut RefMut<'a, Value> {
+    fn deref_mut(&mut self) -> &mut WritableRef<'static, Signal<Value>> {
         &mut self.value
     }
 }
@@ -135,15 +166,26 @@ where
 pub struct Radio<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
-    antenna: Rc<RadioAntenna<Value, Channel>>,
+    antenna: Signal<RadioAntenna<Value, Channel>>,
 }
+
+impl<Value, Channel> Clone for Radio<Value, Channel>
+where
+    Channel: RadioChannel,
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel {}
 
 impl<Value, Channel> Radio<Value, Channel>
 where
     Channel: RadioChannel,
 {
-    pub(crate) fn new(antenna: Rc<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
+    pub(crate) fn new(antenna: Signal<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
         Radio { antenna }
     }
 
@@ -153,8 +195,8 @@ where
     /// ```rs
     /// let value = radio.read();
     /// ```
-    pub fn read(&self) -> Ref<Value> {
-        self.antenna.station.value.borrow()
+    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.antenna.peek().station.value.peek_unchecked()
     }
 
     /// Read the current state value inside a callback.
@@ -165,8 +207,9 @@ where
     ///     // Do something with `value`
     /// });
     /// ```
-    pub fn with(&self, cb: impl FnOnce(Ref<Value>)) {
-        let borrow = self.antenna.station.value.borrow();
+    pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
+        let value = self.antenna.peek().station.value;
+        let borrow = value.read();
         cb(borrow);
     }
 
@@ -177,14 +220,11 @@ where
     /// ```rs
     /// radio.write().value = 1;
     /// ```
-    pub fn write(&self) -> RadioGuard<Value, Channel> {
+    pub fn write(&mut self) -> RadioGuard<Value, Channel> {
         RadioGuard {
-            channel: self
-                .antenna
-                .station
-                .get_scope_channel(self.antenna.scope_id),
-            antenna: &self.antenna,
-            value: self.antenna.station.value.borrow_mut(),
+            channel: self.antenna.peek().get_channel(),
+            antenna: self.antenna,
+            value: self.antenna.peek().station.value.write_unchecked(),
         }
     }
 
@@ -197,7 +237,7 @@ where
     ///     // Modify `value`
     /// });
     /// ```
-    pub fn write_with(&self, cb: impl FnOnce(RadioGuard<Value, Channel>)) {
+    pub fn write_with(&mut self, cb: impl FnOnce(RadioGuard<Value, Channel>)) {
         let guard = self.write();
         cb(guard);
     }
@@ -211,8 +251,8 @@ where
     pub fn write_channel(&self, channel: Channel) -> RadioGuard<Value, Channel> {
         RadioGuard {
             channel,
-            antenna: &self.antenna,
-            value: self.antenna.station.value.borrow_mut(),
+            antenna: self.antenna,
+            value: self.antenna.peek().station.value.write_unchecked(),
         }
     }
 
@@ -226,7 +266,7 @@ where
     /// });
     /// ```
     pub fn write_channel_with(
-        &self,
+        &mut self,
         channel: Channel,
         cb: impl FnOnce(RadioGuard<Value, Channel>),
     ) {
@@ -235,35 +275,45 @@ where
     }
 }
 
-pub fn use_radio<Value: 'static, Channel: 'static>(
-    cx: &ScopeState,
-    channel: Channel,
-) -> &Radio<Value, Channel>
+pub fn use_radio<Value, Channel>(channel: Channel) -> Radio<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
-    let station = use_context::<RadioStation<Value, Channel>>(cx).unwrap();
+    let station = use_context::<RadioStation<Value, Channel>>();
 
-    let radio = cx.use_hook(|| {
-        let antenna = RadioAntenna::new(station.clone(), cx.scope_id());
-        Radio::new(Rc::new(antenna))
+    let radio = use_hook(|| {
+        let antenna = RadioAntenna::new(station, current_scope_id().unwrap());
+        Radio::new(Signal::new(antenna))
     });
 
-    station.listen(channel, cx.scope_id());
+    radio
+        .antenna
+        .peek()
+        .station
+        .listen(channel, current_scope_id().unwrap());
 
     radio
 }
 
-pub fn use_init_radio_station<Value: 'static, Channel: 'static>(
-    cx: &ScopeState,
+pub fn use_init_radio_station<Value, Channel>(
     init_value: impl FnOnce() -> Value,
-) -> &RadioStation<Value, Channel>
+) -> RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
-    use_context_provider(cx, || RadioStation {
-        value: Rc::new(RefCell::new(init_value())),
-        schedule_update_any: cx.schedule_update_any(),
-        listeners: Rc::default(),
+    use_context_provider(|| RadioStation {
+        value: Signal::new(init_value()),
+        schedule_update_any: Signal::new(schedule_update_any()),
+        listeners: Signal::default(),
     })
+}
+
+pub fn use_radio_station<Value, Channel>() -> RadioStation<Value, Channel>
+where
+    Channel: RadioChannel,
+    Value: 'static,
+{
+    use_context::<RadioStation<Value, Channel>>()
 }
