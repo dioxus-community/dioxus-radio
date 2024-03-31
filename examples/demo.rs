@@ -50,10 +50,12 @@ fn ListComp(list_n: usize) -> Element {
                 onclick: move |_| radio.write().lists[list_n].push("Hello World".to_string()),
                 "New Item"
             },
-            for (i, item) in radio.read().lists[list_n].iter().enumerate() {
-                ul {
-                    key: "{i}",
-                    "{item}"
+            ul {
+                for (i, item) in radio.read().lists[list_n].iter().enumerate() {
+                    li {
+                        key: "{i}",
+                        "{item}"
+                    }
                 }
             }
         }
