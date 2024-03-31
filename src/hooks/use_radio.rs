@@ -181,6 +181,12 @@ where
 }
 impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel {}
 
+impl<Value, Channel> PartialEq for Radio<Value, Channel> where Channel: RadioChannel {
+    fn eq(&self, other: &Self) -> bool {
+        self.antenna == other.antenna
+    }
+}
+
 impl<Value, Channel> Radio<Value, Channel>
 where
     Channel: RadioChannel,
@@ -248,7 +254,7 @@ where
     /// ```rs, no_run
     /// radio.write(Channel::Whatever).value = 1;
     /// ```
-    pub fn write_channel(&self, channel: Channel) -> RadioGuard<Value, Channel> {
+    pub fn write_channel(&mut self, channel: Channel) -> RadioGuard<Value, Channel> {
         RadioGuard {
             channel,
             antenna: self.antenna,
