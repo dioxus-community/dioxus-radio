@@ -6,13 +6,13 @@ use std::{
 
 use dioxus_lib::prelude::*;
 
-pub trait RadioChannel: PartialEq + Eq + Clone {}
+pub trait RadioChannel: 'static + PartialEq + Eq + Clone {}
 
-impl<T> RadioChannel for T where T: PartialEq + Eq + Clone {}
+impl<T> RadioChannel for T where T: 'static + PartialEq + Eq + Clone {}
 
 pub struct RadioStation<Value, Channel>
 where
-    Channel: 'static + RadioChannel,
+    Channel: RadioChannel,
     Value: 'static,
 {
     value: Signal<Value>,
@@ -25,11 +25,7 @@ where
     Channel: RadioChannel,
 {
     fn clone(&self) -> Self {
-        Self {
-            value: self.value.clone(),
-            listeners: self.listeners.clone(),
-            schedule_update_any: self.schedule_update_any.clone(),
-        }
+        *self
     }
 }
 
@@ -67,23 +63,11 @@ where
 
 pub struct RadioAntenna<Value, Channel>
 where
-    Channel: 'static + RadioChannel,
+    Channel: RadioChannel,
     Value: 'static,
 {
     station: RadioStation<Value, Channel>,
     scope_id: ScopeId,
-}
-
-impl<Value, Channel> Clone for RadioAntenna<Value, Channel>
-where
-    Channel: RadioChannel,
-{
-    fn clone(&self) -> Self {
-        Self {
-            station: self.station.clone(),
-            scope_id: self.scope_id,
-        }
-    }
 }
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
@@ -95,6 +79,10 @@ where
         scope_id: ScopeId,
     ) -> RadioAntenna<Value, Channel> {
         RadioAntenna { station, scope_id }
+    }
+
+    pub fn get_channel(&self) -> Channel {
+        self.station.get_scope_channel(self.scope_id)
     }
 }
 
@@ -109,7 +97,7 @@ where
 
 pub struct RadioGuard<Value, Channel>
 where
-    Channel: 'static + RadioChannel,
+    Channel: RadioChannel,
     Value: 'static,
 {
     antenna: Signal<RadioAntenna<Value, Channel>>,
@@ -148,7 +136,7 @@ where
 
 pub struct Radio<Value, Channel>
 where
-    Channel: 'static + RadioChannel,
+    Channel: RadioChannel,
     Value: 'static,
 {
     antenna: Signal<RadioAntenna<Value, Channel>>,
@@ -159,9 +147,7 @@ where
     Channel: RadioChannel,
 {
     fn clone(&self) -> Self {
-        Self {
-            antenna: self.antenna.clone(),
-        }
+        *self
     }
 }
 impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel {}
@@ -207,11 +193,7 @@ where
     /// ```
     pub fn write(&self) -> RadioGuard<Value, Channel> {
         RadioGuard {
-            channel: self
-                .antenna
-                .peek()
-                .station
-                .get_scope_channel(self.antenna.peek().scope_id),
+            channel: self.antenna.peek().get_channel(),
             antenna: self.antenna,
             value: self.antenna.peek().station.value.write_unchecked(),
         }
@@ -264,14 +246,15 @@ where
     }
 }
 
-pub fn use_radio<Value: 'static, Channel: 'static>(channel: Channel) -> Radio<Value, Channel>
+pub fn use_radio<Value, Channel>(channel: Channel) -> Radio<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
     let station = use_context::<RadioStation<Value, Channel>>();
 
     let radio = use_hook(|| {
-        let antenna = RadioAntenna::new(station.clone(), current_scope_id().unwrap());
+        let antenna = RadioAntenna::new(station, current_scope_id().unwrap());
         Radio::new(Signal::new(antenna))
     });
 
@@ -280,15 +263,24 @@ where
     radio
 }
 
-pub fn use_init_radio_station<Value: 'static, Channel: 'static>(
+pub fn use_init_radio_station<Value, Channel>(
     init_value: impl FnOnce() -> Value,
 ) -> RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
+    Value: 'static,
 {
     use_context_provider(|| RadioStation {
         value: Signal::new(init_value()),
         schedule_update_any: Signal::new(schedule_update_any()),
         listeners: Signal::default(),
     })
+}
+
+pub fn use_radio_station<Value, Channel>() -> RadioStation<Value, Channel>
+where
+    Channel: RadioChannel,
+    Value: 'static,
+{
+    use_context::<RadioStation<Value, Channel>>()
 }
