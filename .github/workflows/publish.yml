@@ -1,6 +1,7 @@
 name: Cargo Publish
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
