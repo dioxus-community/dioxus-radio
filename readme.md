@@ -2,8 +2,6 @@
 
 # dioxus-radio 📡🦀
 
-⚠️ **Work in progress !!⚠️**.
-
 **Fully-typed global state management with a topics subscription system** for [Dioxus 🧬](https://dioxuslabs.com/).
 
 ## Who is this for
