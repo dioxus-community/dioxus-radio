@@ -21,6 +21,8 @@ fn main() {
             radio.write().lists.push(Vec::default());
         };
 
+        println!("Running DataChannel::ListCreated");
+
         rsx!(
             button {
                 onclick,
@@ -40,7 +42,7 @@ fn main() {
 fn ListComp(list_n: usize) -> Element {
     let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListN(list_n));
 
-    println!("Rerunning list {list_n:?}.");
+    println!("Running DataChannel::ListCreated({list_n})");
 
     rsx!(
         div {
