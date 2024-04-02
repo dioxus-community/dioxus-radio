@@ -10,6 +10,7 @@ pub trait RadioChannel: 'static + PartialEq + Eq + Clone {}
 
 impl<T> RadioChannel for T where T: 'static + PartialEq + Eq + Clone {}
 
+/// Holds a global state and all its subscribers.
 pub struct RadioStation<Value, Channel>
 where
     Channel: RadioChannel,
@@ -163,6 +164,7 @@ where
     }
 }
 
+/// `Radio` lets you access the state and is subscribed given it's `Channel`.
 pub struct Radio<Value, Channel>
 where
     Channel: RadioChannel,
@@ -281,6 +283,9 @@ where
     }
 }
 
+/// Consume the state and subscribe using the given `channel`
+/// Any mutation using this radio will notify other subscribers to the same `channel`, 
+/// unless you explicitely pass a custom channel using other methods as [`Radio::write_channel()`]
 pub fn use_radio<Value, Channel>(channel: Channel) -> Radio<Value, Channel>
 where
     Channel: RadioChannel,
