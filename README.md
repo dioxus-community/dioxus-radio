@@ -63,7 +63,7 @@ fn main() {
     dioxus::launch(|| {
         // Initialize the global state
         use_init_radio_station::<Data, DataChannel>(Data::default);
-        // Subecibe to the state with the channel `DataChannel::ListCreated`
+        // Subscribe to the state with the channel `DataChannel::ListCreated`
         // This way whenever a writer using the `DataChannel::ListCreated` mutates the state
         // This component will rerun
         let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreated);
