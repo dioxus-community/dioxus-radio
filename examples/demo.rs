@@ -12,7 +12,7 @@ pub enum DataChannel {
     ListN(usize),
 }
 
-impl RadioChannel for DataChannel {}
+impl RadioChannel<Data> for DataChannel {}
 
 fn main() {
     dioxus::launch(|| {
