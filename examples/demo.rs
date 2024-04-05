@@ -12,6 +12,8 @@ pub enum DataChannel {
     ListN(usize),
 }
 
+impl RadioChannel for DataChannel {}
+
 fn main() {
     dioxus::launch(|| {
         use_init_radio_station::<Data, DataChannel>(Data::default);

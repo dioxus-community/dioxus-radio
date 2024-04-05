@@ -6,9 +6,11 @@ use std::{
 
 use dioxus_lib::prelude::*;
 
-pub trait RadioChannel: 'static + PartialEq + Eq + Clone {}
-
-impl<T> RadioChannel for T where T: 'static + PartialEq + Eq + Clone {}
+pub trait RadioChannel: 'static + PartialEq + Eq + Clone {
+    fn derivate_channel(self) -> Vec<Self> {
+        vec![self]
+    }
+}
 
 /// Holds a global state and all its subscribers.
 pub struct RadioStation<Value, Channel>
@@ -131,7 +133,7 @@ where
     Value: 'static,
 {
     antenna: Signal<RadioAntenna<Value, Channel>>,
-    channel: Channel,
+    channels: Vec<Channel>,
     value: WritableRef<'static, Signal<Value>>,
 }
 
@@ -140,7 +142,9 @@ where
     Channel: RadioChannel,
 {
     fn drop(&mut self) {
-        self.antenna.peek().station.notify_listeners(&self.channel)
+        for channel in &mut self.channels {
+            self.antenna.peek().station.notify_listeners(&channel)
+        }
     }
 }
 
@@ -230,7 +234,7 @@ where
     /// ```
     pub fn write(&mut self) -> RadioGuard<Value, Channel> {
         RadioGuard {
-            channel: self.antenna.peek().get_channel(),
+            channels: self.antenna.peek().get_channel().derivate_channel(),
             antenna: self.antenna,
             value: self.antenna.peek().station.value.write_unchecked(),
         }
@@ -258,7 +262,7 @@ where
     /// ```
     pub fn write_channel(&mut self, channel: Channel) -> RadioGuard<Value, Channel> {
         RadioGuard {
-            channel,
+            channels: channel.derivate_channel(),
             antenna: self.antenna,
             value: self.antenna.peek().station.value.write_unchecked(),
         }
