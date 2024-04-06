@@ -216,9 +216,10 @@ where
         let scope_id = current_scope_id().unwrap();
         let antenna = &self.antenna.write_unchecked();
         let channel = antenna.get_channel();
+        let is_listening = antenna.station.is_listening(&channel, &scope_id);
 
         // Subscribe the reader scope to the channel if it wasn't already
-        if !antenna.station.is_listening(&channel, &scope_id) {
+        if !is_listening {
             antenna.station.listen(antenna.get_channel(), scope_id);
         }
     }
