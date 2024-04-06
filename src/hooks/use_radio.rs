@@ -204,6 +204,12 @@ where
         Radio { antenna }
     }
 
+    pub(crate) fn subscribe_scope_if_not(&self) {
+        let scope_id = current_scope_id().unwrap();
+        let antenna = &self.antenna.write_unchecked();
+        antenna.station.listen(antenna.get_channel(), scope_id);
+    }
+
     /// Read the current state value.
     //// Example:
     ///
@@ -211,6 +217,7 @@ where
     /// let value = radio.read();
     /// ```
     pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.subscribe_scope_if_not();
         self.antenna.peek().station.value.peek_unchecked()
     }
 
@@ -223,6 +230,7 @@ where
     /// });
     /// ```
     pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
+        self.subscribe_scope_if_not();
         let value = self.antenna.peek().station.value;
         let borrow = value.read();
         cb(borrow);
