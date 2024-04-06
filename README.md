@@ -59,6 +59,8 @@ pub enum DataChannel {
     ListN(usize),
 }
 
+impl RadioChannel<Data> for DataChannel {}
+
 fn main() {
     dioxus::launch(|| {
         // Initialize the global state
