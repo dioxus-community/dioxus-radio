@@ -39,7 +39,7 @@ where
     Channel: RadioChannel<Value>,
 {
     pub(crate) fn is_listening(&self, channel: &Channel, scope_id: &ScopeId) -> bool {
-        let listeners = self.listeners.read_unchecked();
+        let listeners = self.listeners.peek_unchecked();
         listeners
             .get(scope_id)
             .map(|c| c == channel)
@@ -220,7 +220,7 @@ where
 
         // Subscribe the reader scope to the channel if it wasn't already
         if !is_listening {
-            antenna.station.listen(antenna.get_channel(), scope_id);
+            antenna.station.listen(channel, scope_id);
         }
     }
 
