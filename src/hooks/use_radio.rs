@@ -38,6 +38,14 @@ impl<Value, Channel> RadioStation<Value, Channel>
 where
     Channel: RadioChannel<Value>,
 {
+    pub(crate) fn is_listening(&self, channel: &Channel, scope_id: &ScopeId) -> bool {
+        let listeners = self.listeners.read_unchecked();
+        listeners
+            .get(scope_id)
+            .map(|c| c == channel)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
         let mut listeners = self.listeners.write_unchecked();
         listeners.insert(scope_id, channel);
@@ -207,7 +215,12 @@ where
     pub(crate) fn subscribe_scope_if_not(&self) {
         let scope_id = current_scope_id().unwrap();
         let antenna = &self.antenna.write_unchecked();
-        antenna.station.listen(antenna.get_channel(), scope_id);
+        let channel = antenna.get_channel();
+
+        // Subscribe the reader scope to the channel if it wasn't already
+        if !antenna.station.is_listening(&channel, &scope_id) {
+            antenna.station.listen(antenna.get_channel(), scope_id);
+        }
     }
 
     /// Read the current state value.
