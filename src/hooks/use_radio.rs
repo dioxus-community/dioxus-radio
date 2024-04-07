@@ -12,6 +12,11 @@ pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
     }
 }
 
+pub struct RadioListener<Channel> {
+    pub(crate) channel: Channel,
+    pub(crate) drop_signal: CopyValue<()>,
+}
+
 /// Holds a global state and all its subscribers.
 pub struct RadioStation<Value, Channel>
 where
@@ -19,7 +24,7 @@ where
     Value: 'static,
 {
     value: Signal<Value>,
-    listeners: Signal<HashMap<ScopeId, CopyValue<Channel>>>,
+    listeners: Signal<HashMap<ScopeId, RadioListener<Channel>>>,
     schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
 }
 
@@ -42,20 +47,19 @@ where
         let listeners = self.listeners.peek_unchecked();
         listeners
             .get(scope_id)
-            .map(|c| c == channel)
+            .map(|listener| &listener.channel == channel)
             .unwrap_or_default()
-    }
-
-    pub(crate) fn purge_listeners(&self) {
-        let mut listeners = self.listeners.write_unchecked();
-
-        // Remove dropped scopes
-        listeners.retain(|_, listener| listener.try_write().is_ok());
     }
 
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
         let mut listeners = self.listeners.write_unchecked();
-        listeners.insert(scope_id, CopyValue::new_maybe_sync(channel));
+        listeners.insert(
+            scope_id,
+            RadioListener {
+                channel,
+                drop_signal: CopyValue::new_maybe_sync(()),
+            },
+        );
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
@@ -73,10 +77,13 @@ where
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.peek_unchecked();
+        let mut listeners = self.listeners.write_unchecked();
 
-        for (scope_id, listener_channel) in listeners.iter() {
-            if listener_channel == channel {
+        // Remove dropped listeners
+        listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
+
+        for (scope_id, listener) in listeners.iter() {
+            if &listener.channel == channel {
                 (self.schedule_update_any.peek())(*scope_id)
             }
         }
@@ -84,7 +91,7 @@ where
 
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
         let listeners = self.listeners.peek();
-        listeners.get(&scope_id).unwrap().cloned()
+        listeners.get(&scope_id).unwrap().channel.clone()
     }
 
     /// Read the current state value.
@@ -227,7 +234,6 @@ where
         let scope_id = current_scope_id().unwrap();
         let antenna = &self.antenna.write_unchecked();
         let channel = antenna.get_channel();
-        antenna.station.purge_listeners();
         let is_listening = antenna.station.is_listening(&channel, &scope_id);
 
         // Subscribe the reader scope to the channel if it wasn't already
