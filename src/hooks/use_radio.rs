@@ -19,7 +19,7 @@ where
     Value: 'static,
 {
     value: Signal<Value>,
-    listeners: Signal<HashMap<ScopeId, Channel>>,
+    listeners: Signal<HashMap<ScopeId, CopyValue<Channel>>>,
     schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
 }
 
@@ -38,9 +38,17 @@ impl<Value, Channel> RadioStation<Value, Channel>
 where
     Channel: RadioChannel<Value>,
 {
+    pub(crate) fn is_listening(&self, channel: &Channel, scope_id: &ScopeId) -> bool {
+        let listeners = self.listeners.peek_unchecked();
+        listeners
+            .get(scope_id)
+            .map(|c| c == channel)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
         let mut listeners = self.listeners.write_unchecked();
-        listeners.insert(scope_id, channel);
+        listeners.insert(scope_id, CopyValue::new_maybe_sync(channel));
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
@@ -58,7 +66,10 @@ where
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.write_unchecked();
+        let mut listeners = self.listeners.write_unchecked();
+
+        // Remove dropped scopes
+        listeners.retain(|_, listener| listener.try_write().is_ok());
 
         for (scope_id, listener_channel) in listeners.iter() {
             if listener_channel == channel {
@@ -69,7 +80,7 @@ where
 
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
         let listeners = self.listeners.peek();
-        listeners.get(&scope_id).unwrap().clone()
+        listeners.get(&scope_id).unwrap().cloned()
     }
 
     /// Read the current state value.
@@ -143,7 +154,7 @@ where
 {
     fn drop(&mut self) {
         for channel in &mut self.channels {
-            self.antenna.peek().station.notify_listeners(&channel)
+            self.antenna.peek().station.notify_listeners(channel)
         }
     }
 }
@@ -204,6 +215,22 @@ where
         Radio { antenna }
     }
 
+    pub(crate) fn subscribe_scope_if_not(&self) {
+        if !dioxus_core::vdom_is_rendering() {
+            return;
+        }
+
+        let scope_id = current_scope_id().unwrap();
+        let antenna = &self.antenna.write_unchecked();
+        let channel = antenna.get_channel();
+        let is_listening = antenna.station.is_listening(&channel, &scope_id);
+
+        // Subscribe the reader scope to the channel if it wasn't already
+        if !is_listening {
+            antenna.station.listen(channel, scope_id);
+        }
+    }
+
     /// Read the current state value.
     //// Example:
     ///
@@ -211,6 +238,7 @@ where
     /// let value = radio.read();
     /// ```
     pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.subscribe_scope_if_not();
         self.antenna.peek().station.value.peek_unchecked()
     }
 
@@ -223,6 +251,7 @@ where
     /// });
     /// ```
     pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
+        self.subscribe_scope_if_not();
         let value = self.antenna.peek().station.value;
         let borrow = value.read();
         cb(borrow);
@@ -336,24 +365,4 @@ where
     Value: 'static,
 {
     use_context::<RadioStation<Value, Channel>>()
-}
-
-pub fn use_follow_radio<Value, Channel>(radio: &Radio<Value, Channel>) -> Radio<Value, Channel>
-where
-    Channel: RadioChannel<Value>,
-    Value: 'static,
-{
-    let station = use_context::<RadioStation<Value, Channel>>();
-
-    let new_radio = use_hook(|| {
-        let antenna = RadioAntenna::new(station, current_scope_id().unwrap());
-        Radio::new(Signal::new(antenna))
-    });
-
-    new_radio.antenna.peek().station.listen(
-        radio.antenna.peek().get_channel(),
-        current_scope_id().unwrap(),
-    );
-
-    new_radio
 }
