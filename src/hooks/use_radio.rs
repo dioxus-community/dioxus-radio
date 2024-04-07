@@ -73,7 +73,7 @@ where
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.read_unchecked();
+        let listeners = self.listeners.peek_unchecked();
 
         for (scope_id, listener_channel) in listeners.iter() {
             if listener_channel == channel {
