@@ -46,6 +46,13 @@ where
             .unwrap_or_default()
     }
 
+    pub(crate) fn purge_listeners(&self) {
+        let mut listeners = self.listeners.write_unchecked();
+
+        // Remove dropped scopes
+        listeners.retain(|_, listener| listener.try_write().is_ok());
+    }
+
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
         let mut listeners = self.listeners.write_unchecked();
         listeners.insert(scope_id, CopyValue::new_maybe_sync(channel));
@@ -66,10 +73,7 @@ where
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let mut listeners = self.listeners.write_unchecked();
-
-        // Remove dropped scopes
-        listeners.retain(|_, listener| listener.try_write().is_ok());
+        let listeners = self.listeners.read_unchecked();
 
         for (scope_id, listener_channel) in listeners.iter() {
             if listener_channel == channel {
@@ -223,6 +227,7 @@ where
         let scope_id = current_scope_id().unwrap();
         let antenna = &self.antenna.write_unchecked();
         let channel = antenna.get_channel();
+        antenna.station.purge_listeners();
         let is_listening = antenna.station.is_listening(&channel, &scope_id);
 
         // Subscribe the reader scope to the channel if it wasn't already
