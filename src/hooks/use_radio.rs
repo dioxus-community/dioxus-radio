@@ -6,39 +6,60 @@ use std::{
 
 use dioxus_lib::prelude::*;
 
-pub trait RadioChannel: 'static + PartialEq + Eq + Clone {}
+pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
+    fn derivate_channel(self, _radio: &T) -> Vec<Self> {
+        vec![self]
+    }
+}
 
-impl<T> RadioChannel for T where T: 'static + PartialEq + Eq + Clone {}
+pub struct RadioListener<Channel> {
+    pub(crate) channel: Channel,
+    pub(crate) drop_signal: CopyValue<()>,
+}
 
 /// Holds a global state and all its subscribers.
 pub struct RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     value: Signal<Value>,
-    listeners: Signal<HashMap<ScopeId, Channel>>,
+    listeners: Signal<HashMap<ScopeId, RadioListener<Channel>>>,
     schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
 }
 
 impl<Value, Channel> Clone for RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<Value, Channel> Copy for RadioStation<Value, Channel> where Channel: RadioChannel {}
+impl<Value, Channel> Copy for RadioStation<Value, Channel> where Channel: RadioChannel<Value> {}
 
 impl<Value, Channel> RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
+    pub(crate) fn is_listening(&self, channel: &Channel, scope_id: &ScopeId) -> bool {
+        let listeners = self.listeners.peek_unchecked();
+        listeners
+            .get(scope_id)
+            .map(|listener| &listener.channel == channel)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
         let mut listeners = self.listeners.write_unchecked();
-        listeners.insert(scope_id, channel);
+        listeners.insert(
+            scope_id,
+            RadioListener {
+                channel,
+                drop_signal: CopyValue::new_maybe_sync(()),
+            },
+        );
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
@@ -56,10 +77,13 @@ where
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let listeners = self.listeners.write_unchecked();
+        let mut listeners = self.listeners.write_unchecked();
 
-        for (scope_id, listener_channel) in listeners.iter() {
-            if listener_channel == channel {
+        // Remove dropped listeners
+        listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
+
+        for (scope_id, listener) in listeners.iter() {
+            if &listener.channel == channel {
                 (self.schedule_update_any.peek())(*scope_id)
             }
         }
@@ -67,7 +91,7 @@ where
 
     pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
         let listeners = self.listeners.peek();
-        listeners.get(&scope_id).unwrap().clone()
+        listeners.get(&scope_id).unwrap().channel.clone()
     }
 
     /// Read the current state value.
@@ -93,7 +117,7 @@ where
 
 pub struct RadioAntenna<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     station: RadioStation<Value, Channel>,
@@ -102,7 +126,7 @@ where
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     pub(crate) fn new(
         station: RadioStation<Value, Channel>,
@@ -118,7 +142,7 @@ where
 
 impl<Value, Channel> Drop for RadioAntenna<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     fn drop(&mut self) {
         self.station.unlisten(self.scope_id)
@@ -127,26 +151,28 @@ where
 
 pub struct RadioGuard<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     antenna: Signal<RadioAntenna<Value, Channel>>,
-    channel: Channel,
+    channels: Vec<Channel>,
     value: WritableRef<'static, Signal<Value>>,
 }
 
 impl<Value, Channel> Drop for RadioGuard<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     fn drop(&mut self) {
-        self.antenna.peek().station.notify_listeners(&self.channel)
+        for channel in &mut self.channels {
+            self.antenna.peek().station.notify_listeners(channel)
+        }
     }
 }
 
 impl<Value, Channel> Deref for RadioGuard<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     type Target = WritableRef<'static, Signal<Value>>;
 
@@ -157,7 +183,7 @@ where
 
 impl<Value, Channel> DerefMut for RadioGuard<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     fn deref_mut(&mut self) -> &mut WritableRef<'static, Signal<Value>> {
         &mut self.value
@@ -167,7 +193,7 @@ where
 /// `Radio` lets you access the state and is subscribed given it's `Channel`.
 pub struct Radio<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     antenna: Signal<RadioAntenna<Value, Channel>>,
@@ -175,15 +201,18 @@ where
 
 impl<Value, Channel> Clone for Radio<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel {}
+impl<Value, Channel> Copy for Radio<Value, Channel> where Channel: RadioChannel<Value> {}
 
-impl<Value, Channel> PartialEq for Radio<Value, Channel> where Channel: RadioChannel {
+impl<Value, Channel> PartialEq for Radio<Value, Channel>
+where
+    Channel: RadioChannel<Value>,
+{
     fn eq(&self, other: &Self) -> bool {
         self.antenna == other.antenna
     }
@@ -191,10 +220,26 @@ impl<Value, Channel> PartialEq for Radio<Value, Channel> where Channel: RadioCha
 
 impl<Value, Channel> Radio<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
 {
     pub(crate) fn new(antenna: Signal<RadioAntenna<Value, Channel>>) -> Radio<Value, Channel> {
         Radio { antenna }
+    }
+
+    pub(crate) fn subscribe_scope_if_not(&self) {
+        if !dioxus_core::vdom_is_rendering() {
+            return;
+        }
+
+        let scope_id = current_scope_id().unwrap();
+        let antenna = &self.antenna.write_unchecked();
+        let channel = antenna.get_channel();
+        let is_listening = antenna.station.is_listening(&channel, &scope_id);
+
+        // Subscribe the reader scope to the channel if it wasn't already
+        if !is_listening {
+            antenna.station.listen(channel, scope_id);
+        }
     }
 
     /// Read the current state value.
@@ -204,6 +249,7 @@ where
     /// let value = radio.read();
     /// ```
     pub fn read(&self) -> ReadableRef<Signal<Value>> {
+        self.subscribe_scope_if_not();
         self.antenna.peek().station.value.peek_unchecked()
     }
 
@@ -216,6 +262,7 @@ where
     /// });
     /// ```
     pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
+        self.subscribe_scope_if_not();
         let value = self.antenna.peek().station.value;
         let borrow = value.read();
         cb(borrow);
@@ -229,10 +276,11 @@ where
     /// radio.write().value = 1;
     /// ```
     pub fn write(&mut self) -> RadioGuard<Value, Channel> {
+        let value = self.antenna.peek().station.value.write_unchecked();
         RadioGuard {
-            channel: self.antenna.peek().get_channel(),
+            channels: self.antenna.peek().get_channel().derivate_channel(&*value),
             antenna: self.antenna,
-            value: self.antenna.peek().station.value.write_unchecked(),
+            value,
         }
     }
 
@@ -257,10 +305,11 @@ where
     /// radio.write(Channel::Whatever).value = 1;
     /// ```
     pub fn write_channel(&mut self, channel: Channel) -> RadioGuard<Value, Channel> {
+        let value = self.antenna.peek().station.value.write_unchecked();
         RadioGuard {
-            channel,
+            channels: channel.derivate_channel(&*value),
             antenna: self.antenna,
-            value: self.antenna.peek().station.value.write_unchecked(),
+            value,
         }
     }
 
@@ -284,11 +333,11 @@ where
 }
 
 /// Consume the state and subscribe using the given `channel`
-/// Any mutation using this radio will notify other subscribers to the same `channel`, 
+/// Any mutation using this radio will notify other subscribers to the same `channel`,
 /// unless you explicitely pass a custom channel using other methods as [`Radio::write_channel()`]
 pub fn use_radio<Value, Channel>(channel: Channel) -> Radio<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     let station = use_context::<RadioStation<Value, Channel>>();
@@ -311,7 +360,7 @@ pub fn use_init_radio_station<Value, Channel>(
     init_value: impl FnOnce() -> Value,
 ) -> RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     use_context_provider(|| RadioStation {
@@ -323,7 +372,7 @@ where
 
 pub fn use_radio_station<Value, Channel>() -> RadioStation<Value, Channel>
 where
-    Channel: RadioChannel,
+    Channel: RadioChannel<Value>,
     Value: 'static,
 {
     use_context::<RadioStation<Value, Channel>>()
