@@ -7,7 +7,7 @@ use std::{
 use dioxus_lib::prelude::*;
 
 pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
-    fn derivate_channel(self, _radio: &T) -> Vec<Self> {
+    fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
     }
 }
@@ -278,7 +278,7 @@ where
     pub fn write(&mut self) -> RadioGuard<Value, Channel> {
         let value = self.antenna.peek().station.value.write_unchecked();
         RadioGuard {
-            channels: self.antenna.peek().get_channel().derivate_channel(&*value),
+            channels: self.antenna.peek().get_channel().derive_channel(&*value),
             antenna: self.antenna,
             value,
         }
@@ -307,7 +307,7 @@ where
     pub fn write_channel(&mut self, channel: Channel) -> RadioGuard<Value, Channel> {
         let value = self.antenna.peek().station.value.write_unchecked();
         RadioGuard {
-            channels: channel.derivate_channel(&*value),
+            channels: channel.derive_channel(&*value),
             antenna: self.antenna,
             value,
         }
