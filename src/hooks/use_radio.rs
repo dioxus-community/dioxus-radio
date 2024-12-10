@@ -5,6 +5,10 @@ use std::{
 };
 
 use dioxus_lib::prelude::*;
+mod warnings {
+    pub use warnings::Warning;
+}
+pub use warnings::Warning;
 
 pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
@@ -52,35 +56,41 @@ where
     }
 
     pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
-        let mut listeners = self.listeners.write_unchecked();
-        listeners.insert(
-            scope_id,
-            RadioListener {
-                channel,
-                drop_signal: CopyValue::new_maybe_sync(()),
-            },
-        );
+        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
+            let mut listeners = self.listeners.write_unchecked();
+            listeners.insert(
+                scope_id,
+                RadioListener {
+                    channel,
+                    drop_signal: CopyValue::new_maybe_sync(()),
+                },
+            );
+        });
     }
 
     pub(crate) fn unlisten(&self, scope_id: ScopeId) {
-        let mut listeners = match self.listeners.try_write_unchecked() {
-            Err(generational_box::BorrowMutError::Dropped(_)) => {
-                // It's safe to skip this error as the RadioStation's signals could have been dropped before the caller of this function.
-                // For instance: If you closed the app, the RadioStation would be dropped along all it's signals, causing the inner components
-                // to still have dropped signals and thus causing this error if they were to call the signals on a custom destructor.
-                return;
-            }
-            Err(e) => panic!("Unexpected error: {e}"),
-            Ok(v) => v,
-        };
-        listeners.remove(&scope_id);
+        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
+            let mut listeners = match self.listeners.try_write_unchecked() {
+                Err(generational_box::BorrowMutError::Dropped(_)) => {
+                    // It's safe to skip this error as the RadioStation's signals could have been dropped before the caller of this function.
+                    // For instance: If you closed the app, the RadioStation would be dropped along all it's signals, causing the inner components
+                    // to still have dropped signals and thus causing this error if they were to call the signals on a custom destructor.
+                    return;
+                }
+                Err(e) => panic!("Unexpected error: {e}"),
+                Ok(v) => v,
+            };
+            listeners.remove(&scope_id);
+        });
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
         let mut listeners = self.listeners.write_unchecked();
 
         // Remove dropped listeners
-        listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
+        dioxus_lib::prelude::warnings::copy_value_hoisted::allow(|| {
+            listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
+        });
 
         for (scope_id, listener) in listeners.iter() {
             if &listener.channel == channel {
@@ -227,19 +237,21 @@ where
     }
 
     pub(crate) fn subscribe_scope_if_not(&self) {
-        if !dioxus_core::vdom_is_rendering() {
-            return;
-        }
+        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
+            if !dioxus_core::vdom_is_rendering() {
+                return;
+            }
 
-        let scope_id = current_scope_id().unwrap();
-        let antenna = &self.antenna.write_unchecked();
-        let channel = antenna.get_channel();
-        let is_listening = antenna.station.is_listening(&channel, &scope_id);
+            let scope_id = current_scope_id().unwrap();
+            let antenna = &self.antenna.write_unchecked();
+            let channel = antenna.get_channel();
+            let is_listening = antenna.station.is_listening(&channel, &scope_id);
 
-        // Subscribe the reader scope to the channel if it wasn't already
-        if !is_listening {
-            antenna.station.listen(channel, scope_id);
-        }
+            // Subscribe the reader scope to the channel if it wasn't already
+            if !is_listening {
+                antenna.station.listen(channel, scope_id);
+            }
+        });
     }
 
     /// Read the current state value.
