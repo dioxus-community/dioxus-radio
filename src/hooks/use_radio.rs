@@ -342,6 +342,36 @@ where
         let guard = self.write_channel(channel);
         cb(guard);
     }
+
+    /// Get a mutable reference to the current state value, inside a callback that returns the channel to be used.
+    ///
+    /// Example:
+    ///
+    /// ```rs
+    /// radio.write_with_map_channel(|value| {
+    ///     // Modify `value`
+    ///     if value.cool {
+    ///         Channel::Whatever
+    ///     } else {
+    ///         Channel::SomethingElse
+    ///     }
+    /// });
+    /// ```
+    pub fn write_with_map_channel(
+        &mut self,
+        cb: impl FnOnce(&mut RadioGuard<Value, Channel>) -> Channel,
+    ) {
+        let value = self.antenna.peek().station.value.write_unchecked();
+        let mut guard = RadioGuard {
+            channels: Vec::default(),
+            antenna: self.antenna,
+            value,
+        };
+        let channel = cb(&mut guard);
+        for channel in channel.derive_channel(&guard.value) {
+            self.antenna.peek().station.notify_listeners(&channel)
+        }
+    }
 }
 
 /// Consume the state and subscribe using the given `channel`
