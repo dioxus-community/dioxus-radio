@@ -357,17 +357,14 @@ where
     ///     }
     /// });
     /// ```
-    pub fn write_with_map_channel(
-        &mut self,
-        cb: impl FnOnce(&mut RadioGuard<Value, Channel>) -> Channel,
-    ) {
+    pub fn write_with_map_channel(&mut self, cb: impl FnOnce(&mut Value) -> Channel) {
         let value = self.antenna.peek().station.value.write_unchecked();
         let mut guard = RadioGuard {
             channels: Vec::default(),
             antenna: self.antenna,
             value,
         };
-        let channel = cb(&mut guard);
+        let channel = cb(&mut guard.value);
         for channel in channel.derive_channel(&guard.value) {
             self.antenna.peek().station.notify_listeners(&channel)
         }
@@ -418,4 +415,30 @@ where
     Value: 'static,
 {
     use_context::<RadioStation<Value, Channel>>()
+}
+
+pub trait DataReducer {
+    type Channel;
+    type Action;
+
+    fn reduce(&mut self, action: Self::Action) -> Self::Channel;
+}
+
+pub trait RadioReducer {
+    type Action;
+
+    fn apply(&mut self, action: Self::Action);
+}
+
+impl<
+        Data: DataReducer<Channel = Channel, Action = Action>,
+        Channel: RadioChannel<Data>,
+        Action,
+    > RadioReducer for Radio<Data, Channel>
+{
+    type Action = Action;
+
+    fn apply(&mut self, action: Action) {
+        self.write_with_map_channel(|data| data.reduce(action));
+    }
 }
