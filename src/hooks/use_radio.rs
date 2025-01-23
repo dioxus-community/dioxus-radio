@@ -369,6 +369,35 @@ where
             self.antenna.peek().station.notify_listeners(&channel)
         }
     }
+
+    /// Get a mutable reference to the current state value, inside a callback that returns the channel to be used or none (will use the [Radio]'s one then).
+    ///
+    /// Example:
+    ///
+    /// ```rs
+    /// radio.write_with_map_optional_channel(|value| {
+    ///     // Modify `value`
+    ///     if value.cool {
+    ///         Some(Channel::Whatever)
+    ///     } else {
+    ///         None
+    ///     }
+    /// });
+    /// ```
+    pub fn write_with_map_optional_channel(&mut self, cb: impl FnOnce(&mut Value) -> Option<Channel>) {
+        let value = self.antenna.peek().station.value.write_unchecked();
+        let mut guard = RadioGuard {
+            channels: Vec::default(),
+            antenna: self.antenna,
+            value,
+        };
+        let channel = cb(&mut guard.value);
+        if let Some(channel) = channel {
+            for channel in channel.derive_channel(&guard.value) {
+                self.antenna.peek().station.notify_listeners(&channel)
+            }
+        }
+    }
 }
 
 /// Consume the state and subscribe using the given `channel`
