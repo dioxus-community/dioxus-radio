@@ -6,23 +6,23 @@ struct Data {
     pub lists: Vec<Vec<String>>,
 }
 
-pub enum ChannelAction {
+pub enum DataAction {
     NewList,
     AddToList { list: usize, text: String },
 }
 
 impl DataReducer for Data {
-    type Action = ChannelAction;
+    type Action = DataAction;
     type Channel = DataChannel;
 
     fn reduce(&mut self, message: Self::Action) -> Self::Channel {
         match message {
-            ChannelAction::NewList => {
+            DataAction::NewList => {
                 self.lists.push(Vec::default());
 
                 DataChannel::ListCreated
             }
-            ChannelAction::AddToList { list, text } => {
+            DataAction::AddToList { list, text } => {
                 self.lists[list].push(text);
 
                 DataChannel::ListN(list)
@@ -45,7 +45,7 @@ fn main() {
         let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreated);
 
         let onclick = move |_| {
-            radio.apply(ChannelAction::NewList);
+            radio.apply(DataAction::NewList);
         };
 
         println!("Running DataChannel::ListCreated");
@@ -74,7 +74,7 @@ fn ListComp(list_n: usize) -> Element {
     rsx!(
         div {
             button {
-                onclick: move |_| radio.apply(ChannelAction::AddToList {
+                onclick: move |_| radio.apply(DataAction::AddToList {
                     list: 0,
                     text: "Hello, World".to_string()
                 }),

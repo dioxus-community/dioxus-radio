@@ -384,7 +384,10 @@ where
     ///     }
     /// });
     /// ```
-    pub fn write_with_map_optional_channel(&mut self, cb: impl FnOnce(&mut Value) -> Option<Channel>) {
+    pub fn write_with_map_optional_channel(
+        &mut self,
+        cb: impl FnOnce(&mut Value) -> Option<Channel>,
+    ) {
         let value = self.antenna.peek().station.value.write_unchecked();
         let mut guard = RadioGuard {
             channels: Vec::default(),
@@ -396,6 +399,15 @@ where
             for channel in channel.derive_channel(&guard.value) {
                 self.antenna.peek().station.notify_listeners(&channel)
             }
+        }
+    }
+
+    pub fn write_silently(&mut self) -> RadioGuard<Value, Channel> {
+        let value = self.antenna.peek().station.value.write_unchecked();
+        RadioGuard {
+            channels: Vec::default(),
+            antenna: self.antenna,
+            value,
         }
     }
 }
@@ -469,5 +481,45 @@ impl<
 
     fn apply(&mut self, action: Action) {
         self.write_with_map_channel(|data| data.reduce(action));
+    }
+}
+
+
+
+pub trait DataAsyncReducer {
+    type Channel;
+    type Action;
+
+
+    #[allow(async_fn_in_trait)]
+    async fn async_reduce(
+        _radio: &mut Radio<Self, Self::Channel>,
+        _action: Self::Action,
+    ) -> Self::Channel
+    where
+        Self::Channel: RadioChannel<Self>,
+        Self: Sized;
+}
+
+pub trait RadioAsyncReducer {
+    type Action;
+
+    fn async_apply(&mut self, _action: Self::Action)  where Self::Action: 'static;
+}
+
+impl<
+        Data: DataAsyncReducer<Channel = Channel, Action = Action>,
+        Channel: RadioChannel<Data>,
+        Action,
+    > RadioAsyncReducer for Radio<Data, Channel>
+{
+    type Action = Action;
+
+    fn async_apply(&mut self, action: Self::Action) where Self::Action: 'static {
+        let mut radio = *self;
+        spawn(async move {
+            let channel = Data::async_reduce(&mut radio, action).await;
+            radio.write_with_map_channel(|_| channel);
+        });
     }
 }
