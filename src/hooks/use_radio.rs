@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use dioxus_lib::prelude::*;
@@ -28,8 +28,7 @@ where
     Value: 'static,
 {
     value: Signal<Value>,
-    listeners: Signal<HashMap<ScopeId, RadioListener<Channel>>>,
-    schedule_update_any: Signal<Arc<dyn Fn(ScopeId) + Send + Sync>>,
+    listeners: Signal<HashMap<ReactiveContext, RadioListener<Channel>>>,
 }
 
 impl<Value, Channel> Clone for RadioStation<Value, Channel>
@@ -47,19 +46,23 @@ impl<Value, Channel> RadioStation<Value, Channel>
 where
     Channel: RadioChannel<Value>,
 {
-    pub(crate) fn is_listening(&self, channel: &Channel, scope_id: &ScopeId) -> bool {
+    pub(crate) fn is_listening(
+        &self,
+        channel: &Channel,
+        reactive_context: &ReactiveContext,
+    ) -> bool {
         let listeners = self.listeners.peek_unchecked();
         listeners
-            .get(scope_id)
+            .get(reactive_context)
             .map(|listener| &listener.channel == channel)
             .unwrap_or_default()
     }
 
-    pub(crate) fn listen(&self, channel: Channel, scope_id: ScopeId) {
+    pub(crate) fn listen(&self, channel: Channel, reactive_context: ReactiveContext) {
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             let mut listeners = self.listeners.write_unchecked();
             listeners.insert(
-                scope_id,
+                reactive_context,
                 RadioListener {
                     channel,
                     drop_signal: CopyValue::new_maybe_sync(()),
@@ -68,7 +71,7 @@ where
         });
     }
 
-    pub(crate) fn unlisten(&self, scope_id: ScopeId) {
+    pub(crate) fn unlisten(&self, reactive_context: ReactiveContext) {
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             let mut listeners = match self.listeners.try_write_unchecked() {
                 Err(generational_box::BorrowMutError::Dropped(_)) => {
@@ -80,7 +83,7 @@ where
                 Err(e) => panic!("Unexpected error: {e}"),
                 Ok(v) => v,
             };
-            listeners.remove(&scope_id);
+            listeners.remove(&reactive_context);
         });
     }
 
@@ -92,20 +95,16 @@ where
             listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
         });
 
-        for (scope_id, listener) in listeners.iter() {
+        for (reactive_context, listener) in listeners.iter() {
             if &listener.channel == channel {
-                (self.schedule_update_any.peek())(*scope_id)
+                reactive_context.mark_dirty();
             }
         }
     }
 
-    pub(crate) fn get_scope_channel(&self, scope_id: ScopeId) -> Channel {
-        let listeners = self.listeners.peek();
-        listeners.get(&scope_id).unwrap().channel.clone()
-    }
-
-    /// Read the current state value.
-    //// Example:
+    /// Read the current state value. This effectively subscribes to any change no matter the channel.
+    ///
+    /// Example:
     ///
     /// ```rs
     /// let value = radio.read();
@@ -115,7 +114,8 @@ where
     }
 
     /// Read the current state value without subscribing.
-    //// Example:
+    ///
+    /// Example:
     ///
     /// ```rs
     /// let value = radio.peek();
@@ -130,8 +130,10 @@ where
     Channel: RadioChannel<Value>,
     Value: 'static,
 {
+    pub(crate) channel: Channel,
     station: RadioStation<Value, Channel>,
-    scope_id: ScopeId,
+    reactive_context: ReactiveContext,
+    pub(crate) subscribers: Arc<Mutex<HashSet<ReactiveContext>>>,
 }
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
@@ -139,14 +141,16 @@ where
     Channel: RadioChannel<Value>,
 {
     pub(crate) fn new(
+        channel: Channel,
         station: RadioStation<Value, Channel>,
-        scope_id: ScopeId,
+        reactive_context: ReactiveContext,
     ) -> RadioAntenna<Value, Channel> {
-        RadioAntenna { station, scope_id }
-    }
-
-    pub fn get_channel(&self) -> Channel {
-        self.station.get_scope_channel(self.scope_id)
+        RadioAntenna {
+            channel,
+            station,
+            reactive_context,
+            subscribers: Arc::default(),
+        }
     }
 }
 
@@ -155,7 +159,7 @@ where
     Channel: RadioChannel<Value>,
 {
     fn drop(&mut self) {
-        self.station.unlisten(self.scope_id)
+        self.station.unlisten(self.reactive_context)
     }
 }
 
@@ -236,37 +240,37 @@ where
         Radio { antenna }
     }
 
-    pub(crate) fn subscribe_scope_if_not(&self) {
+    pub(crate) fn subscribe_if_not(&self) {
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
-            if !dioxus_core::vdom_is_rendering() {
-                return;
-            }
+            if let Some(rc) = ReactiveContext::current() {
+                let antenna = &self.antenna.write_unchecked();
+                rc.subscribe(antenna.subscribers.clone());
+                let channel = antenna.channel.clone();
+                let is_listening = antenna.station.is_listening(&channel, &rc);
 
-            let scope_id = current_scope_id().unwrap();
-            let antenna = &self.antenna.write_unchecked();
-            let channel = antenna.get_channel();
-            let is_listening = antenna.station.is_listening(&channel, &scope_id);
-
-            // Subscribe the reader scope to the channel if it wasn't already
-            if !is_listening {
-                antenna.station.listen(channel, scope_id);
+                // Subscribe the reader reactive context to the channel if it wasn't already
+                if !is_listening {
+                    antenna.station.listen(channel, rc);
+                }
             }
         });
     }
 
     /// Read the current state value.
-    //// Example:
+    ///
+    /// Example:
     ///
     /// ```rs
     /// let value = radio.read();
     /// ```
     pub fn read(&self) -> ReadableRef<Signal<Value>> {
-        self.subscribe_scope_if_not();
+        self.subscribe_if_not();
         self.antenna.peek().station.value.peek_unchecked()
     }
 
     /// Read the current state value inside a callback.
-    //// Example:
+    ///
+    /// Example:
     ///
     /// ```rs
     /// radio.with(|value| {
@@ -274,7 +278,7 @@ where
     /// });
     /// ```
     pub fn with(&self, cb: impl FnOnce(ReadableRef<Signal<Value>>)) {
-        self.subscribe_scope_if_not();
+        self.subscribe_if_not();
         let value = self.antenna.peek().station.value;
         let borrow = value.read();
         cb(borrow);
@@ -289,8 +293,9 @@ where
     /// ```
     pub fn write(&mut self) -> RadioGuard<Value, Channel> {
         let value = self.antenna.peek().station.value.write_unchecked();
+        let channel = self.antenna.peek().channel.clone();
         RadioGuard {
-            channels: self.antenna.peek().get_channel().derive_channel(&*value),
+            channels: channel.derive_channel(&*value),
             antenna: self.antenna,
             value,
         }
@@ -422,18 +427,10 @@ where
 {
     let station = use_context::<RadioStation<Value, Channel>>();
 
-    let radio = use_hook(|| {
-        let antenna = RadioAntenna::new(station, current_scope_id().unwrap());
+    use_hook(|| {
+        let antenna = RadioAntenna::new(channel, station, ReactiveContext::current().unwrap());
         Radio::new(Signal::new(antenna))
-    });
-
-    radio
-        .antenna
-        .peek()
-        .station
-        .listen(channel, current_scope_id().unwrap());
-
-    radio
+    })
 }
 
 pub fn use_init_radio_station<Value, Channel>(
@@ -445,7 +442,6 @@ where
 {
     use_context_provider(|| RadioStation {
         value: Signal::new(init_value()),
-        schedule_update_any: Signal::new(schedule_update_any()),
         listeners: Signal::default(),
     })
 }
@@ -484,12 +480,9 @@ impl<
     }
 }
 
-
-
 pub trait DataAsyncReducer {
     type Channel;
     type Action;
-
 
     #[allow(async_fn_in_trait)]
     async fn async_reduce(
@@ -504,7 +497,9 @@ pub trait DataAsyncReducer {
 pub trait RadioAsyncReducer {
     type Action;
 
-    fn async_apply(&mut self, _action: Self::Action)  where Self::Action: 'static;
+    fn async_apply(&mut self, _action: Self::Action)
+    where
+        Self::Action: 'static;
 }
 
 impl<
@@ -515,7 +510,10 @@ impl<
 {
     type Action = Action;
 
-    fn async_apply(&mut self, action: Self::Action) where Self::Action: 'static {
+    fn async_apply(&mut self, action: Self::Action)
+    where
+        Self::Action: 'static,
+    {
         let mut radio = *self;
         spawn(async move {
             let channel = Data::async_reduce(&mut radio, action).await;

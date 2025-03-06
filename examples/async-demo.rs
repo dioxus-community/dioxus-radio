@@ -62,7 +62,7 @@ fn Counter() -> Element {
 
     println!("Running DataChannel::FetchedData");
 
-    let count = radio.read().count; 
+    let count = radio.read().count;
 
     rsx!(
         p {

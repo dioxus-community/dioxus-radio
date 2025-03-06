@@ -20,43 +20,54 @@ impl DataReducer for Data {
             DataAction::NewList => {
                 self.lists.push(Vec::default());
 
-                DataChannel::ListCreated
+                DataChannel::ListCreation
             }
             DataAction::AddToList { list, text } => {
                 self.lists[list].push(text);
 
-                DataChannel::ListN(list)
+                DataChannel::SpecificListItemUpdate(list)
             }
         }
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy)]
 pub enum DataChannel {
-    ListCreated,
-    ListN(usize),
+    ListCreation,
+    SpecificListItemUpdate(usize),
+    AnyListItemIsUpdated,
 }
 
-impl RadioChannel<Data> for DataChannel {}
+impl RadioChannel<Data> for DataChannel {
+    fn derive_channel(self, _radio: &Data) -> Vec<Self> {
+        let mut channel = vec![self];
+        if let Self::SpecificListItemUpdate(_) = self {
+            channel.push(Self::AnyListItemIsUpdated);
+        }
+        channel
+    }
+}
 
 fn main() {
     dioxus::launch(|| {
         use_init_radio_station::<Data, DataChannel>(Data::default);
-        let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreated);
+        let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreation);
 
         let onclick = move |_| {
             radio.apply(DataAction::NewList);
         };
 
-        println!("Running DataChannel::ListCreated");
+        println!("Running DataChannel::ListCreation");
 
         rsx!(
+            ListObserver {}
             button {
                 onclick,
                 "Add new list",
             }
             for (list_n, _) in radio.read().lists.iter().enumerate() {
                 ListComp {
+                    key: "{list_n}",
                     list_n
                 }
             }
@@ -66,16 +77,31 @@ fn main() {
 
 #[allow(non_snake_case)]
 #[component]
-fn ListComp(list_n: usize) -> Element {
-    let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListN(list_n));
+fn ListObserver() -> Element {
+    let radio = use_radio::<Data, DataChannel>(DataChannel::AnyListItemIsUpdated);
 
-    println!("Running DataChannel::ListCreated({list_n})");
+    use_effect(move || {
+        let _ = radio.read();
+        println!("Running DataChannel::AnyListItemIsUpdated");
+    });
+
+    println!("Created DataChannel::AnyListItemIsUpdated");
+
+    Ok(VNode::placeholder())
+}
+
+#[allow(non_snake_case)]
+#[component]
+fn ListComp(list_n: usize) -> Element {
+    let mut radio = use_radio::<Data, DataChannel>(DataChannel::SpecificListItemUpdate(list_n));
+
+    println!("Running DataChannel::SpecificListItemUpdate({list_n})");
 
     rsx!(
         div {
             button {
                 onclick: move |_| radio.apply(DataAction::AddToList {
-                    list: 0,
+                    list: list_n,
                     text: "Hello, World".to_string()
                 }),
                 "New Item"
