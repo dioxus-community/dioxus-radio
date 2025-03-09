@@ -16,6 +16,10 @@
 - All renderers ([web](https://dioxuslabs.com/learn/0.5/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.5/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
 - Both WASM and native targets
 
+## Questions
+
+Feel free to open a discussions in the [Discussions tab](https://github.com/dioxus-community/dioxus-radio/discussions).
+
 ## Installation
 Install the latest release:
 ```sh
