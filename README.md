@@ -53,10 +53,10 @@ struct Data {
 }
 
 // Channels used to identify the subscribers of the State
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy)]
 pub enum DataChannel {
-    ListCreated,
-    ListN(usize),
+    ListCreation,
+    SpecificListItemUpdate(usize),
 }
 
 impl RadioChannel<Data> for DataChannel {}
@@ -65,16 +65,16 @@ fn main() {
     dioxus::launch(|| {
         // Initialize the global state
         use_init_radio_station::<Data, DataChannel>(Data::default);
-        // Subscribe to the state with the channel `DataChannel::ListCreated`
-        // This way whenever a writer using the `DataChannel::ListCreated` mutates the state
+        // Subscribe to the state with the channel `DataChannel::ListCreation`
+        // This way whenever a writer using the `DataChannel::ListCreation` mutates the state
         // This component will rerun
-        let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreated);
+        let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListCreation);
 
         let onclick = move |_| {
             radio.write().lists.push(Vec::default());
         };
 
-        println!("Running DataChannel::ListCreated");
+        println!("Running DataChannel::ListCreation");
 
         rsx!(
             button {
@@ -83,6 +83,7 @@ fn main() {
             }
             for (list_n, _) in radio.read().lists.iter().enumerate() {
                 ListComp {
+                    key: "{list_n}",
                     list_n
                 }
             }
@@ -96,9 +97,9 @@ fn ListComp(list_n: usize) -> Element {
     // Subscribe the state using the `DataChannel::ListN(list_n)` channel, where `list_n` is index of this element 
     // Whenever a mutation (in this case just this component) occurs only 
     // this component will rerun as it is the only one that is subscribed to this channel
-    let mut radio = use_radio::<Data, DataChannel>(DataChannel::ListN(list_n));
+    let mut radio = use_radio::<Data, DataChannel>(DataChannel::SpecificListItemUpdate(list_n));
 
-    println!("Running DataChannel::ListCreated({list_n})");
+    println!("Running DataChannel::SpecificListItemUpdate({list_n})");
 
     rsx!(
         div {
