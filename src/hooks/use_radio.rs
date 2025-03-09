@@ -407,6 +407,10 @@ where
         }
     }
 
+    /// Modify the state silently, no component will be notified.
+    ///
+    /// This is not recommended, the only intended usage for this is inside [RadioAsyncReducer].
+    ///
     pub fn write_silently(&mut self) -> RadioGuard<Value, Channel> {
         let value = self.antenna.peek().station.value.write_unchecked();
         RadioGuard {
