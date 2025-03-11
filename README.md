@@ -98,7 +98,7 @@ fn main() {
 #[allow(non_snake_case)]
 #[component]
 fn ListComp(list_n: usize) -> Element {
-    // Subscribe the state using the `DataChannel::ListN(list_n)` channel, where `list_n` is index of this element 
+    // Subscribe the state using the `DataChannel::SpecificListItemUpdate(list_n)` channel, where `list_n` is index of this element 
     // Whenever a mutation (in this case just this component) occurs only 
     // this component will rerun as it is the only one that is subscribed to this channel
     let mut radio = use_radio::<Data, DataChannel>(DataChannel::SpecificListItemUpdate(list_n));
