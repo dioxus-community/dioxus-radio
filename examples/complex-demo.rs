@@ -15,17 +15,17 @@ impl DataReducer for Data {
     type Action = DataAction;
     type Channel = DataChannel;
 
-    fn reduce(&mut self, message: Self::Action) -> Self::Channel {
+    fn reduce(&mut self, message: Self::Action) -> ChannelSelection<Self::Channel> {
         match message {
             DataAction::NewList => {
                 self.lists.push(Vec::default());
 
-                DataChannel::ListCreation
+                ChannelSelection::Select(DataChannel::ListCreation)
             }
             DataAction::AddToList { list, text } => {
                 self.lists[list].push(text);
 
-                DataChannel::SpecificListItemUpdate(list)
+                ChannelSelection::Select(DataChannel::SpecificListItemUpdate(list))
             }
         }
     }

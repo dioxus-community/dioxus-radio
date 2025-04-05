@@ -1,6 +1,6 @@
 [package]
 name = "dioxus-radio"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Fully-typed global state management with a topics subscription system for Dioxus 🧬"
 readme = "./README.md"
@@ -10,10 +10,17 @@ keywords = ["dioxus"]
 categories = ["gui"]
 license = "MIT"
 
+[features]
+tracing = ["dep:tracing", "dep:itertools"]
+
 [dependencies]
 dioxus-lib = { version = "0.6.0", default-features = false, features = ["macro", "hooks", "signals"] }
 generational-box = "0.6.0"
 warnings = "0.2.1"
+
+# Logging
+itertools = { version = "0.14.0", optional = true }
+tracing = { version = "0.1.41", optional = true }
 
 [dev-dependencies]
 dioxus = { version = "0.6.0", features = ["desktop"] }

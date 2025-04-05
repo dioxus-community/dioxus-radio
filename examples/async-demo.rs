@@ -17,12 +17,12 @@ impl DataAsyncReducer for Data {
     async fn async_reduce(
         radio: &mut Radio<Data, Self::Channel>,
         action: Self::Action,
-    ) -> Self::Channel {
+    ) -> ChannelSelection<Self::Channel> {
         match action {
             DataAction::FetchData => {
                 radio.write_silently().count += 1;
 
-                DataChannel::FetchedData
+                ChannelSelection::Select(DataChannel::FetchedData)
             }
         }
     }
