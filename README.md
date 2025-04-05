@@ -13,7 +13,7 @@
 ## Support
 
 - **Dioxus v0.6** 🧬
-- All renderers ([web](https://dioxuslabs.com/learn/0.5/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.5/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
+- All renderers ([web](https://dioxuslabs.com/learn/0.6/getting_started/wasm), [desktop](https://dioxuslabs.com/learn/0.6/getting_started/desktop), [freya](https://github.com/marc2332/freya), etc)
 - Both WASM and native targets
 
 ## Questions

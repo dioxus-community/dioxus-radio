@@ -10,6 +10,14 @@ mod warnings {
 }
 pub use warnings::Warning;
 
+#[cfg(feature = "tracing")]
+pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash + std::fmt::Debug + Ord {
+    fn derive_channel(self, _radio: &T) -> Vec<Self> {
+        vec![self]
+    }
+}
+
+#[cfg(not(feature = "tracing"))]
 pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
@@ -90,6 +98,9 @@ where
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
         let mut listeners = self.listeners.write_unchecked();
 
+        #[cfg(feature = "tracing")]
+        tracing::info!("Notifying {channel:?}");
+
         // Remove dropped listeners
         dioxus_lib::prelude::warnings::copy_value_hoisted::allow(|| {
             listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
@@ -122,6 +133,30 @@ where
     /// ```
     pub fn peek(&self) -> ReadableRef<Signal<Value>> {
         self.value.peek()
+    }
+
+    #[cfg(not(feature = "tracing"))]
+    pub fn print_metrics(&self) {}
+
+    #[cfg(feature = "tracing")]
+    pub fn print_metrics(&self) {
+        use itertools::Itertools;
+        use tracing::{info, span, Level};
+
+        let mut channels_subscribers = HashMap::<&Channel, usize>::new();
+
+        let listeners = self.listeners.peek();
+
+        for sub in listeners.values() {
+            *channels_subscribers.entry(&sub.channel).or_default() += 1;
+        }
+
+        let span = span!(Level::DEBUG, "Radio Station Metrics");
+        let _enter = span.enter();
+
+        for (channel, count) in channels_subscribers.iter().sorted() {
+            info!(" {count} subscribers for {channel:?}")
+        }
     }
 }
 
@@ -180,6 +215,9 @@ where
     fn drop(&mut self) {
         for channel in &mut self.channels {
             self.antenna.peek().station.notify_listeners(channel)
+        }
+        if !self.channels.is_empty() {
+            self.antenna.peek().station.print_metrics();
         }
     }
 }
@@ -353,45 +391,18 @@ where
     /// Example:
     ///
     /// ```rs
-    /// radio.write_with_map_channel(|value| {
+    /// radio.write_with_channel_selection(|value| {
     ///     // Modify `value`
     ///     if value.cool {
-    ///         Channel::Whatever
+    ///         ChannelSelection::Select(Channel::Whatever)
     ///     } else {
-    ///         Channel::SomethingElse
+    ///         ChannelSelection::Silence
     ///     }
     /// });
     /// ```
-    pub fn write_with_map_channel(&mut self, cb: impl FnOnce(&mut Value) -> Channel) {
-        let value = self.antenna.peek().station.value.write_unchecked();
-        let mut guard = RadioGuard {
-            channels: Vec::default(),
-            antenna: self.antenna,
-            value,
-        };
-        let channel = cb(&mut guard.value);
-        for channel in channel.derive_channel(&guard.value) {
-            self.antenna.peek().station.notify_listeners(&channel)
-        }
-    }
-
-    /// Get a mutable reference to the current state value, inside a callback that returns the channel to be used or none (will use the [Radio]'s one then).
-    ///
-    /// Example:
-    ///
-    /// ```rs
-    /// radio.write_with_map_optional_channel(|value| {
-    ///     // Modify `value`
-    ///     if value.cool {
-    ///         Some(Channel::Whatever)
-    ///     } else {
-    ///         None
-    ///     }
-    /// });
-    /// ```
-    pub fn write_with_map_optional_channel(
+    pub fn write_with_channel_selection(
         &mut self,
-        cb: impl FnOnce(&mut Value) -> Option<Channel>,
+        cb: impl FnOnce(&mut Value) -> ChannelSelection<Channel>,
     ) {
         let value = self.antenna.peek().station.value.write_unchecked();
         let mut guard = RadioGuard {
@@ -399,11 +410,17 @@ where
             antenna: self.antenna,
             value,
         };
-        let channel = cb(&mut guard.value);
+        let channel_selection = cb(&mut guard.value);
+        let channel = match channel_selection {
+            ChannelSelection::Current => Some(self.antenna.peek().channel.clone()),
+            ChannelSelection::Silence => None,
+            ChannelSelection::Select(c) => Some(c),
+        };
         if let Some(channel) = channel {
             for channel in channel.derive_channel(&guard.value) {
                 self.antenna.peek().station.notify_listeners(&channel)
             }
+            self.antenna.peek().station.print_metrics();
         }
     }
 
@@ -418,6 +435,35 @@ where
             antenna: self.antenna,
             value,
         }
+    }
+}
+
+impl<Channel> Copy for ChannelSelection<Channel> where Channel: Copy {}
+
+#[derive(Clone)]
+pub enum ChannelSelection<Channel> {
+    /// Notify the channel associated with the used [Radio].
+    Current,
+    /// Notify a given [Channel].
+    Select(Channel),
+    /// No subscriber will be notified.
+    Silence,
+}
+
+impl<Channel> ChannelSelection<Channel> {
+    /// Change to [ChannelSelection::Current]
+    pub fn current(&mut self) {
+        *self = Self::Current
+    }
+
+    /// Change to [ChannelSelection::Select]
+    pub fn select(&mut self, channel: Channel) {
+        *self = Self::Select(channel)
+    }
+
+    /// Change to [ChannelSelection::Silence]
+    pub fn silence(&mut self) {
+        *self = Self::Silence
     }
 }
 
@@ -462,7 +508,7 @@ pub trait DataReducer {
     type Channel;
     type Action;
 
-    fn reduce(&mut self, action: Self::Action) -> Self::Channel;
+    fn reduce(&mut self, action: Self::Action) -> ChannelSelection<Self::Channel>;
 }
 
 pub trait RadioReducer {
@@ -480,7 +526,7 @@ impl<
     type Action = Action;
 
     fn apply(&mut self, action: Action) {
-        self.write_with_map_channel(|data| data.reduce(action));
+        self.write_with_channel_selection(|data| data.reduce(action));
     }
 }
 
@@ -492,7 +538,7 @@ pub trait DataAsyncReducer {
     async fn async_reduce(
         _radio: &mut Radio<Self, Self::Channel>,
         _action: Self::Action,
-    ) -> Self::Channel
+    ) -> ChannelSelection<Self::Channel>
     where
         Self::Channel: RadioChannel<Self>,
         Self: Sized;
@@ -521,7 +567,7 @@ impl<
         let mut radio = *self;
         spawn(async move {
             let channel = Data::async_reduce(&mut radio, action).await;
-            radio.write_with_map_channel(|_| channel);
+            radio.write_with_channel_selection(|_| channel);
         });
     }
 }
