@@ -11,7 +11,9 @@ mod warnings {
 pub use warnings::Warning;
 
 #[cfg(feature = "tracing")]
-pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash + std::fmt::Debug + Ord {
+pub trait RadioChannel<T>:
+    'static + PartialEq + Eq + Clone + std::hash::Hash + std::fmt::Debug + Ord
+{
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
     }
