@@ -479,10 +479,20 @@ where
 {
     let station = use_context::<RadioStation<Value, Channel>>();
 
-    use_hook(|| {
-        let antenna = RadioAntenna::new(channel, station, ReactiveContext::current().unwrap());
+    let mut radio = use_hook(|| {
+        let antenna = RadioAntenna::new(
+            channel.clone(),
+            station,
+            ReactiveContext::current().unwrap(),
+        );
         Radio::new(Signal::new(antenna))
-    })
+    });
+
+    if radio.antenna.peek().channel != channel {
+        radio.antenna.write().channel = channel;
+    }
+
+    radio
 }
 
 pub fn use_init_radio_station<Value, Channel>(
