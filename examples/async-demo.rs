@@ -28,7 +28,7 @@ impl DataAsyncReducer for Data {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum DataChannel {
     FetchedData,
     Void,
