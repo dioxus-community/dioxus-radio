@@ -1,5 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet}, hash::Hash, ops::{Deref, DerefMut}, sync::{Arc, Mutex}
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
 };
 
 use dioxus_lib::prelude::*;
@@ -9,9 +12,7 @@ mod warnings {
 pub use warnings::Warning;
 
 #[cfg(feature = "tracing")]
-pub trait RadioChannel<T>:
-    'static + PartialEq + Eq + Clone + std::hash::Hash + std::fmt::Debug + Ord
-{
+pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash + std::fmt::Debug + Ord {
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
     }
@@ -64,10 +65,8 @@ where
     pub(crate) fn listen(&self, channel: Channel, reactive_context: ReactiveContext) {
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             let mut listeners = self.listeners.write_unchecked();
-            listeners.insert(
-                channel,
-                Arc::new(Mutex::new(HashSet::from([reactive_context])))
-            );
+            let listeners = listeners.entry(channel).or_default();
+            reactive_context.subscribe(listeners.clone());
         });
     }
 
@@ -108,27 +107,30 @@ where
         self.value.peek()
     }
 
-    #[cfg(not(feature = "tracing"))]
-    pub fn print_metrics(&self) {}
+    pub fn cleanup(&self) {
+        let mut listeners = self.listeners.write_unchecked();
 
-    #[cfg(feature = "tracing")]
-    pub fn print_metrics(&self) {
-        use itertools::Itertools;
-        use tracing::{info, span, Level};
+        // Clean up those channels with no reactive contexts
+        listeners.retain(|_, listeners| !listeners.lock().unwrap().is_empty());
 
-        let mut channels_subscribers = HashMap::<&Channel, usize>::new();
+        #[cfg(feature = "tracing")]
+        {
+            use itertools::Itertools;
+            use tracing::{info, span, Level};
 
-        let listeners = self.listeners.peek();
+            let mut channels_subscribers = HashMap::<&Channel, usize>::new();
 
-        for sub in listeners.values() {
-            *channels_subscribers.entry(&sub.channel).or_default() += 1;
-        }
+            for (channel, listeners) in listeners.iter() {
+                *channels_subscribers.entry(&channel).or_default() =
+                    listeners.lock().unwrap().len();
+            }
 
-        let span = span!(Level::DEBUG, "Radio Station Metrics");
-        let _enter = span.enter();
+            let span = span!(Level::DEBUG, "Radio Station Metrics");
+            let _enter = span.enter();
 
-        for (channel, count) in channels_subscribers.iter().sorted() {
-            info!(" {count} subscribers for {channel:?}")
+            for (channel, count) in channels_subscribers.iter().sorted() {
+                info!(" {count} subscribers for {channel:?}")
+            }
         }
     }
 }
@@ -140,7 +142,6 @@ where
 {
     pub(crate) channel: Channel,
     station: RadioStation<Value, Channel>,
-    pub(crate) subscribers: Arc<Mutex<HashSet<ReactiveContext>>>,
 }
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
@@ -151,11 +152,7 @@ where
         channel: Channel,
         station: RadioStation<Value, Channel>,
     ) -> RadioAntenna<Value, Channel> {
-        RadioAntenna {
-            channel,
-            station,
-            subscribers: Arc::default(),
-        }
+        RadioAntenna { channel, station }
     }
 }
 
@@ -178,7 +175,7 @@ where
             self.antenna.peek().station.notify_listeners(channel)
         }
         if !self.channels.is_empty() {
-            self.antenna.peek().station.print_metrics();
+            self.antenna.peek().station.cleanup();
         }
     }
 }
@@ -243,7 +240,6 @@ where
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             if let Some(rc) = ReactiveContext::current() {
                 let antenna = &self.antenna.write_unchecked();
-                rc.subscribe(antenna.subscribers.clone());
                 let channel = antenna.channel.clone();
                 let is_listening = antenna.station.is_listening(&channel, &rc);
 
@@ -381,7 +377,7 @@ where
             for channel in channel.derive_channel(&guard.value) {
                 self.antenna.peek().station.notify_listeners(&channel)
             }
-            self.antenna.peek().station.print_metrics();
+            self.antenna.peek().station.cleanup();
         }
     }
 
@@ -439,10 +435,7 @@ where
     let station = use_context::<RadioStation<Value, Channel>>();
 
     let mut radio = use_hook(|| {
-        let antenna = RadioAntenna::new(
-            channel.clone(),
-            station,
-        );
+        let antenna = RadioAntenna::new(channel.clone(), station);
         Radio::new(Signal::new(antenna))
     });
 
