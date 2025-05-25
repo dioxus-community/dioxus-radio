@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };
@@ -11,24 +12,17 @@ mod warnings {
 pub use warnings::Warning;
 
 #[cfg(feature = "tracing")]
-pub trait RadioChannel<T>:
-    'static + PartialEq + Eq + Clone + std::hash::Hash + std::fmt::Debug + Ord
-{
+pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash + std::fmt::Debug + Ord {
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
     }
 }
 
 #[cfg(not(feature = "tracing"))]
-pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone {
+pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash {
     fn derive_channel(self, _radio: &T) -> Vec<Self> {
         vec![self]
     }
-}
-
-pub struct RadioListener<Channel> {
-    pub(crate) channel: Channel,
-    pub(crate) drop_signal: CopyValue<()>,
 }
 
 /// Holds a global state and all its subscribers.
@@ -38,7 +32,7 @@ where
     Value: 'static,
 {
     value: Signal<Value>,
-    listeners: Signal<HashMap<ReactiveContext, RadioListener<Channel>>>,
+    listeners: Signal<HashMap<Channel, Arc<Mutex<HashSet<ReactiveContext>>>>>,
 }
 
 impl<Value, Channel> Clone for RadioStation<Value, Channel>
@@ -63,54 +57,30 @@ where
     ) -> bool {
         let listeners = self.listeners.peek_unchecked();
         listeners
-            .get(reactive_context)
-            .map(|listener| &listener.channel == channel)
+            .get(channel)
+            .map(|contexts| contexts.lock().unwrap().contains(reactive_context))
             .unwrap_or_default()
     }
 
     pub(crate) fn listen(&self, channel: Channel, reactive_context: ReactiveContext) {
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             let mut listeners = self.listeners.write_unchecked();
-            listeners.insert(
-                reactive_context,
-                RadioListener {
-                    channel,
-                    drop_signal: CopyValue::new_maybe_sync(()),
-                },
-            );
-        });
-    }
-
-    pub(crate) fn unlisten(&self, reactive_context: ReactiveContext) {
-        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
-            let mut listeners = match self.listeners.try_write_unchecked() {
-                Err(generational_box::BorrowMutError::Dropped(_)) => {
-                    // It's safe to skip this error as the RadioStation's signals could have been dropped before the caller of this function.
-                    // For instance: If you closed the app, the RadioStation would be dropped along all it's signals, causing the inner components
-                    // to still have dropped signals and thus causing this error if they were to call the signals on a custom destructor.
-                    return;
-                }
-                Err(e) => panic!("Unexpected error: {e}"),
-                Ok(v) => v,
-            };
-            listeners.remove(&reactive_context);
+            let listeners = listeners.entry(channel).or_default();
+            reactive_context.subscribe(listeners.clone());
         });
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
-        let mut listeners = self.listeners.write_unchecked();
+        let listeners = self.listeners.write_unchecked();
 
         #[cfg(feature = "tracing")]
         tracing::info!("Notifying {channel:?}");
 
-        // Remove dropped listeners
-        dioxus_lib::prelude::warnings::copy_value_hoisted::allow(|| {
-            listeners.retain(|_, listener| listener.drop_signal.try_write().is_ok());
-        });
-
-        for (reactive_context, listener) in listeners.iter() {
-            if &listener.channel == channel {
-                reactive_context.mark_dirty();
+        for (listener_channel, listeners) in listeners.iter() {
+            if listener_channel == channel {
+                for reactive_context in listeners.lock().unwrap().iter() {
+                    reactive_context.mark_dirty();
+                }
             }
         }
     }
@@ -137,27 +107,30 @@ where
         self.value.peek()
     }
 
-    #[cfg(not(feature = "tracing"))]
-    pub fn print_metrics(&self) {}
+    pub fn cleanup(&self) {
+        let mut listeners = self.listeners.write_unchecked();
 
-    #[cfg(feature = "tracing")]
-    pub fn print_metrics(&self) {
-        use itertools::Itertools;
-        use tracing::{info, span, Level};
+        // Clean up those channels with no reactive contexts
+        listeners.retain(|_, listeners| !listeners.lock().unwrap().is_empty());
 
-        let mut channels_subscribers = HashMap::<&Channel, usize>::new();
+        #[cfg(feature = "tracing")]
+        {
+            use itertools::Itertools;
+            use tracing::{info, span, Level};
 
-        let listeners = self.listeners.peek();
+            let mut channels_subscribers = HashMap::<&Channel, usize>::new();
 
-        for sub in listeners.values() {
-            *channels_subscribers.entry(&sub.channel).or_default() += 1;
-        }
+            for (channel, listeners) in listeners.iter() {
+                *channels_subscribers.entry(&channel).or_default() =
+                    listeners.lock().unwrap().len();
+            }
 
-        let span = span!(Level::DEBUG, "Radio Station Metrics");
-        let _enter = span.enter();
+            let span = span!(Level::DEBUG, "Radio Station Metrics");
+            let _enter = span.enter();
 
-        for (channel, count) in channels_subscribers.iter().sorted() {
-            info!(" {count} subscribers for {channel:?}")
+            for (channel, count) in channels_subscribers.iter().sorted() {
+                info!(" {count} subscribers for {channel:?}")
+            }
         }
     }
 }
@@ -169,8 +142,6 @@ where
 {
     pub(crate) channel: Channel,
     station: RadioStation<Value, Channel>,
-    reactive_context: ReactiveContext,
-    pub(crate) subscribers: Arc<Mutex<HashSet<ReactiveContext>>>,
 }
 
 impl<Value, Channel> RadioAntenna<Value, Channel>
@@ -180,23 +151,8 @@ where
     pub(crate) fn new(
         channel: Channel,
         station: RadioStation<Value, Channel>,
-        reactive_context: ReactiveContext,
     ) -> RadioAntenna<Value, Channel> {
-        RadioAntenna {
-            channel,
-            station,
-            reactive_context,
-            subscribers: Arc::default(),
-        }
-    }
-}
-
-impl<Value, Channel> Drop for RadioAntenna<Value, Channel>
-where
-    Channel: RadioChannel<Value>,
-{
-    fn drop(&mut self) {
-        self.station.unlisten(self.reactive_context)
+        RadioAntenna { channel, station }
     }
 }
 
@@ -219,7 +175,7 @@ where
             self.antenna.peek().station.notify_listeners(channel)
         }
         if !self.channels.is_empty() {
-            self.antenna.peek().station.print_metrics();
+            self.antenna.peek().station.cleanup();
         }
     }
 }
@@ -284,7 +240,6 @@ where
         dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
             if let Some(rc) = ReactiveContext::current() {
                 let antenna = &self.antenna.write_unchecked();
-                rc.subscribe(antenna.subscribers.clone());
                 let channel = antenna.channel.clone();
                 let is_listening = antenna.station.is_listening(&channel, &rc);
 
@@ -422,7 +377,7 @@ where
             for channel in channel.derive_channel(&guard.value) {
                 self.antenna.peek().station.notify_listeners(&channel)
             }
-            self.antenna.peek().station.print_metrics();
+            self.antenna.peek().station.cleanup();
         }
     }
 
@@ -480,11 +435,7 @@ where
     let station = use_context::<RadioStation<Value, Channel>>();
 
     let mut radio = use_hook(|| {
-        let antenna = RadioAntenna::new(
-            channel.clone(),
-            station,
-            ReactiveContext::current().unwrap(),
-        );
+        let antenna = RadioAntenna::new(channel.clone(), station);
         Radio::new(Signal::new(antenna))
     });
 

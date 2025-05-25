@@ -57,7 +57,7 @@ struct Data {
 }
 
 // Channels used to identify the subscribers of the State
-#[derive(PartialEq, Eq, Clone, Debug, Copy)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy, Hash)]
 pub enum DataChannel {
     ListCreation,
     SpecificListItemUpdate(usize),

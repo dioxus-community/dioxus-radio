@@ -31,7 +31,7 @@ impl DataReducer for Data {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Copy)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy, Hash)]
 pub enum DataChannel {
     ListCreation,
     SpecificListItemUpdate(usize),
