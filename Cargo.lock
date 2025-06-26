@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "dioxus-radio"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "dioxus",
  "dioxus-lib",
