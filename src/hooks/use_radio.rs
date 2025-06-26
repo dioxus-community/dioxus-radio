@@ -360,7 +360,7 @@ where
     pub fn write_with_channel_selection(
         &mut self,
         cb: impl FnOnce(&mut Value) -> ChannelSelection<Channel>,
-    ) {
+    ) -> ChannelSelection<Channel> {
         let value = self.antenna.peek().station.value.write_unchecked();
         let mut guard = RadioGuard {
             channels: Vec::default(),
@@ -368,7 +368,7 @@ where
             value,
         };
         let channel_selection = cb(&mut guard.value);
-        let channel = match channel_selection {
+        let channel = match channel_selection.clone() {
             ChannelSelection::Current => Some(self.antenna.peek().channel.clone()),
             ChannelSelection::Silence => None,
             ChannelSelection::Select(c) => Some(c),
@@ -379,6 +379,8 @@ where
             }
             self.antenna.peek().station.cleanup();
         }
+
+        channel_selection
     }
 
     /// Modify the state silently, no component will be notified.
@@ -421,6 +423,24 @@ impl<Channel> ChannelSelection<Channel> {
     /// Change to [ChannelSelection::Silence]
     pub fn silence(&mut self) {
         *self = Self::Silence
+    }
+
+    /// Check if it is of type [ChannelSelection::Current]
+    pub fn is_current(&self) -> bool {
+        matches!(self, Self::Current)
+    }
+
+    /// Check if it is of type [ChannelSelection::Select] and return the channel.
+    pub fn is_select(&self) -> Option<&Channel> {
+        match self {
+            Self::Select(channel) => Some(channel),
+            _ => None,
+        }
+    }
+
+    /// Check if it is of type [ChannelSelection::Silence]
+    pub fn is_silence(&self) -> bool {
+        matches!(self, Self::Silence)
     }
 }
 
@@ -476,8 +496,9 @@ pub trait DataReducer {
 
 pub trait RadioReducer {
     type Action;
+    type Channel;
 
-    fn apply(&mut self, action: Self::Action);
+    fn apply(&mut self, action: Self::Action) -> ChannelSelection<Self::Channel>;
 }
 
 impl<
@@ -487,9 +508,10 @@ impl<
     > RadioReducer for Radio<Data, Channel>
 {
     type Action = Action;
+    type Channel = Channel;
 
-    fn apply(&mut self, action: Action) {
-        self.write_with_channel_selection(|data| data.reduce(action));
+    fn apply(&mut self, action: Action) -> ChannelSelection<Channel> {
+        self.write_with_channel_selection(|data| data.reduce(action))
     }
 }
 
