@@ -5,11 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use dioxus_lib::prelude::*;
-mod warnings {
-    pub use warnings::Warning;
-}
-pub use warnings::Warning;
+use dioxus::prelude::*;
+use dioxus_core::ReactiveContext;
 
 #[cfg(feature = "tracing")]
 pub trait RadioChannel<T>: 'static + PartialEq + Eq + Clone + Hash + std::fmt::Debug + Ord {
@@ -63,11 +60,9 @@ where
     }
 
     pub(crate) fn listen(&self, channel: Channel, reactive_context: ReactiveContext) {
-        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
-            let mut listeners = self.listeners.write_unchecked();
-            let listeners = listeners.entry(channel).or_default();
-            reactive_context.subscribe(listeners.clone());
-        });
+        let mut listeners = self.listeners.write_unchecked();
+        let listeners = listeners.entry(channel).or_default();
+        reactive_context.subscribe(listeners.clone());
     }
 
     pub(crate) fn notify_listeners(&self, channel: &Channel) {
@@ -92,7 +87,7 @@ where
     /// ```rs
     /// let value = radio.read();
     /// ```
-    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+    pub fn read(&self) -> ReadableRef<'_, Signal<Value>> {
         self.value.read()
     }
 
@@ -103,7 +98,7 @@ where
     /// ```rs
     /// let value = radio.peek();
     /// ```
-    pub fn peek(&self) -> ReadableRef<Signal<Value>> {
+    pub fn peek(&self) -> ReadableRef<'_, Signal<Value>> {
         self.value.peek()
     }
 
@@ -237,18 +232,16 @@ where
     }
 
     pub(crate) fn subscribe_if_not(&self) {
-        dioxus_lib::prelude::warnings::signal_write_in_component_body::allow(|| {
-            if let Some(rc) = ReactiveContext::current() {
-                let antenna = &self.antenna.write_unchecked();
-                let channel = antenna.channel.clone();
-                let is_listening = antenna.station.is_listening(&channel, &rc);
+        if let Some(rc) = ReactiveContext::current() {
+            let antenna = &self.antenna.write_unchecked();
+            let channel = antenna.channel.clone();
+            let is_listening = antenna.station.is_listening(&channel, &rc);
 
-                // Subscribe the reader reactive context to the channel if it wasn't already
-                if !is_listening {
-                    antenna.station.listen(channel, rc);
-                }
+            // Subscribe the reader reactive context to the channel if it wasn't already
+            if !is_listening {
+                antenna.station.listen(channel, rc);
             }
-        });
+        }
     }
 
     /// Read the current state value.
@@ -258,7 +251,7 @@ where
     /// ```rs
     /// let value = radio.read();
     /// ```
-    pub fn read(&self) -> ReadableRef<Signal<Value>> {
+    pub fn read(&self) -> ReadableRef<'_, Signal<Value>> {
         self.subscribe_if_not();
         self.antenna.peek().station.value.peek_unchecked()
     }
