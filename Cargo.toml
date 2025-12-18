@@ -14,10 +14,7 @@ license = "MIT"
 tracing = ["dep:tracing", "dep:itertools"]
 
 [dependencies]
-dioxus = { version = "0.7.0-rc.0", default-features = false, features = ["macro", "hooks", "signals"] }
-dioxus-core = { version = "0.7.0-rc.0" }
-dioxus-signals = { version = "0.7.0-rc.0" }
-dioxus-hooks = { version = "0.7.0-rc.0" }
+dioxus = { version = "0.7", default-features = false, features = ["macro", "hooks", "signals"] }
 generational-box = "0.6.0"
 
 # Logging
