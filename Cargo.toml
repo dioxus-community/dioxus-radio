@@ -25,4 +25,4 @@ itertools = { version = "0.14.0", optional = true }
 tracing = { version = "0.1.41", optional = true }
 
 [dev-dependencies]
-dioxus = { version = "^0.7.0-rc.0", features = ["desktop"] }
+dioxus = { version = "0.7", features = ["desktop"] }
