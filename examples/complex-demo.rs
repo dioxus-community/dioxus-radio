@@ -100,10 +100,12 @@ fn ListComp(list_n: usize) -> Element {
     rsx!(
         div {
             button {
-                onclick: move |_| radio.apply(DataAction::AddToList {
-                    list: list_n,
-                    text: "Hello, World".to_string()
-                }),
+                onclick: move |_| {
+                    radio.apply(DataAction::AddToList {
+                        list: list_n,
+                        text: "Hello, World".to_string()
+                    });
+                },
                 "New Item"
             },
             ul {
